@@ -1,0 +1,13 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+
+# Generated assembly outputs
+*.fasta
+*.gfa
+*.fastg
+*.paths
+
+# OS specific files
+.DS_Store
+Thumbs.db
