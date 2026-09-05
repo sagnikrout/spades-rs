@@ -265,3 +265,29 @@ fn test_spaligner_hybrid() {
     assert_eq!(bridged.len(), 1);
     assert_eq!(bridged[0].sequence, b"GGCTACGTCCTA");
 }
+
+#[test]
+fn test_local_gap_closer() {
+    use intelligent_pascal::scaffold::LocalGapCloser;
+
+    let closer = LocalGapCloser {
+        k: 5,
+        max_gap_len: 100,
+    };
+
+    // Test direct overlap
+    let left = b"ACGTACGTACGT";
+    let right = b"ACGTGGGGGG";
+    let closed = closer.close_gap(left, right, &[]);
+    assert!(closed.is_some());
+    assert_eq!(closed.unwrap(), b"ACGTACGTACGTGGGGGG");
+
+    // Test k-mer walk across gap
+    let left2 = b"ACGTACGTAG";
+    let right2 = b"TGCATGCATG";
+    let read = b"ACGTACGTAGAATTGCATGCATG".to_vec();
+    let read_slice: &[u8] = &read;
+    let closed2 = closer.close_gap(left2, right2, &[read_slice, read_slice]);
+    assert!(closed2.is_some());
+    assert_eq!(closed2.unwrap(), b"ACGTACGTAGAATTGCATGCATG");
+}

@@ -89,16 +89,23 @@ impl Simplifier {
             .collect()
     }
 
-    /// Filters dead-end tips and sequencing artifacts.
+    /// Filters dead-end tips and sequencing artifacts with length-awareness.
     fn clip_tips(&self, unitigs: Vec<Unitig>, dynamic_tip_threshold: f64) -> Vec<Unitig> {
-        let tip_max_len = (2 * self.k).min(120);
+        let tip_max_len = 2 * self.k;
         unitigs
             .into_iter()
             .filter(|u| {
-                let is_tip =
-                    u.sequence.len() <= tip_max_len && u.mean_coverage < dynamic_tip_threshold;
-                let is_noise = u.mean_coverage < (self.min_coverage * 0.5);
-                !is_tip && !is_noise
+                // If a dead-end branch is longer than or equal to 2*k base pairs,
+                // do not prune it based on low coverage alone.
+                // True sequencing errors virtually never generate an unbroken, unbranched error chain of 2*k bases.
+                // Keep the low-coverage and noise cutoff strictly for short tips (< 2*k).
+                if u.sequence.len() >= tip_max_len {
+                    true
+                } else {
+                    let is_tip = u.mean_coverage < dynamic_tip_threshold;
+                    let is_noise = u.mean_coverage < (self.min_coverage * 0.5);
+                    !is_tip && !is_noise
+                }
             })
             .collect()
     }

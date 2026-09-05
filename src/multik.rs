@@ -102,7 +102,7 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
         // Save high-confidence intermediate unitigs from earlier steps for potential rescue
         if !is_last_step {
             for u in &result.contigs {
-                if u.sequence.len() >= 500 && u.mean_coverage >= config.min_coverage {
+                if u.sequence.len() >= 300 && u.mean_coverage >= config.min_coverage {
                     intermediate_unitigs.push(u.clone());
                 }
             }
@@ -148,7 +148,7 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
         let mut rescued_count = 0;
         let k = 31;
         for prior_u in intermediate_unitigs {
-            if prior_u.sequence.len() < 500 {
+            if prior_u.sequence.len() < 300 {
                 continue;
             }
             let mut missing_kmers = 0;

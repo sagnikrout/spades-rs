@@ -51,7 +51,7 @@ impl LongReadResolver {
         let seed_k = 15.min(k).max(4);
         let step = 5.min((seed_k / 3).max(1));
         let k1 = k.saturating_sub(1);
-        let min_ov = if unitigs.len() <= 3 { (k1 / 2).max(1) } else { 15 };
+        let min_ov = if unitigs.len() <= 3 { (k1 / 2).max(1) } else { 10 };
         let min_read_len = if unitigs.len() <= 3 { seed_k * 2 } else { 1500 };
 
         // 1. Calculate expected coverage depth to distinguish repeats from unique contigs
@@ -348,10 +348,23 @@ impl LongReadResolver {
                     total_bp += rep_seq.len() - best_overlap;
                     cov_sum += unitigs[rep_idx].mean_coverage * (rep_seq.len() - best_overlap) as f64;
                 } else {
-                    assembled.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
-                    assembled.extend_from_slice(&rep_seq);
-                    total_bp += rep_seq.len() + 20;
-                    cov_sum += unitigs[rep_idx].mean_coverage * rep_seq.len() as f64;
+                    let mut short_ov = 0;
+                    for ov in (5..min_ov.min(max_ov)).rev() {
+                        if assembled[assembled.len() - ov..] == rep_seq[..ov] {
+                            short_ov = ov;
+                            break;
+                        }
+                    }
+                    if short_ov >= 5 {
+                        assembled.extend_from_slice(&rep_seq[short_ov..]);
+                        total_bp += rep_seq.len() - short_ov;
+                        cov_sum += unitigs[rep_idx].mean_coverage * (rep_seq.len() - short_ov) as f64;
+                    } else {
+                        assembled.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
+                        assembled.extend_from_slice(&rep_seq);
+                        total_bp += rep_seq.len() + 20;
+                        cov_sum += unitigs[rep_idx].mean_coverage * rep_seq.len() as f64;
+                    }
                 }
                 total_kmers += unitigs[rep_idx].kmers_count;
                 unrolled_repeats.insert(rep_idx);
@@ -380,10 +393,23 @@ impl LongReadResolver {
                 total_bp += right_seq.len() - best_overlap;
                 cov_sum += unitigs[u_r].mean_coverage * (right_seq.len() - best_overlap) as f64;
             } else {
-                assembled.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
-                assembled.extend_from_slice(&right_seq);
-                total_bp += right_seq.len() + 20;
-                cov_sum += unitigs[u_r].mean_coverage * right_seq.len() as f64;
+                let mut short_ov = 0;
+                for ov in (5..min_ov.min(max_ov)).rev() {
+                    if assembled[assembled.len() - ov..] == right_seq[..ov] {
+                        short_ov = ov;
+                        break;
+                    }
+                }
+                if short_ov >= 5 {
+                    assembled.extend_from_slice(&right_seq[short_ov..]);
+                    total_bp += right_seq.len() - short_ov;
+                    cov_sum += unitigs[u_r].mean_coverage * (right_seq.len() - short_ov) as f64;
+                } else {
+                    assembled.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
+                    assembled.extend_from_slice(&right_seq);
+                    total_bp += right_seq.len() + 20;
+                    cov_sum += unitigs[u_r].mean_coverage * right_seq.len() as f64;
+                }
             }
             total_kmers += unitigs[u_r].kmers_count;
 
