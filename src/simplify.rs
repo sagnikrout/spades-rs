@@ -196,15 +196,19 @@ impl Simplifier {
         }
 
         let mut changed = true;
-        while changed {
+        let max_rounds = 32;
+        let mut round = 0;
+
+        while changed && round < max_rounds {
             changed = false;
+            round += 1;
             let n = unitigs.len();
 
             // Build index of prefixes and suffixes for degree checking
             let mut prefix_map: hashbrown::HashMap<Vec<u8>, Vec<(usize, bool)>> =
-                hashbrown::HashMap::new();
+                hashbrown::HashMap::with_capacity(n * 2);
             let mut suffix_map: hashbrown::HashMap<Vec<u8>, Vec<(usize, bool)>> =
-                hashbrown::HashMap::new();
+                hashbrown::HashMap::with_capacity(n * 2);
 
             for (i, u_i) in unitigs.iter().enumerate().take(n) {
                 if u_i.sequence.len() < k1 {
@@ -225,10 +229,13 @@ impl Simplifier {
                 suffix_map.entry(rc_prefix).or_default().push((i, true));
             }
 
-            let mut merge_pair: Option<(usize, usize, bool)> = None;
+            // Find all disjoint unambiguous pairs (i -> j) in a single pass
+            let mut merge_pairs: Vec<(usize, usize, bool)> = Vec::new();
+            let mut used_as_source: hashbrown::HashSet<usize> = hashbrown::HashSet::new();
+            let mut used_as_target: hashbrown::HashSet<usize> = hashbrown::HashSet::new();
 
             for (i, u_i) in unitigs.iter().enumerate().take(n) {
-                if u_i.sequence.len() < k1 {
+                if u_i.sequence.len() < k1 || used_as_source.contains(&i) || used_as_target.contains(&i) {
                     continue;
                 }
                 let suffix_i = u_i.sequence[u_i.sequence.len() - k1..].to_vec();
@@ -244,6 +251,9 @@ impl Simplifier {
 
                     if unique_targets.len() == 1 {
                         let (j, is_rc) = unique_targets[0];
+                        if used_as_source.contains(&j) || used_as_target.contains(&j) {
+                            continue;
+                        }
 
                         // Degree check: ensure j's incoming endpoint also has exactly 1 predecessor (i)
                         let j_prefix = if !is_rc {
@@ -265,16 +275,22 @@ impl Simplifier {
                             }
 
                             if unique_in.len() == 1 && unique_in[0] == i {
-                                merge_pair = Some((i, j, is_rc));
-                                break;
+                                merge_pairs.push((i, j, is_rc));
+                                used_as_source.insert(i);
+                                used_as_target.insert(j);
                             }
                         }
                     }
                 }
             }
 
-            if let Some((i, j, is_rc)) = merge_pair {
-                // Orient j if needed
+            if merge_pairs.is_empty() {
+                break;
+            }
+
+            // Execute all disjoint merges
+            let mut consumed: hashbrown::HashSet<usize> = hashbrown::HashSet::with_capacity(merge_pairs.len());
+            for (i, j, is_rc) in merge_pairs {
                 if is_rc {
                     unitigs[j].sequence = Self::revcomp_slice(&unitigs[j].sequence);
                 }
@@ -290,9 +306,17 @@ impl Simplifier {
                     (cov_i * len_i as f64 + cov_j * len_j as f64) / (len_i + len_j) as f64;
                 unitigs[i].kmers_count += unitigs[j].kmers_count;
 
-                unitigs.remove(j);
+                consumed.insert(j);
                 changed = true;
             }
+
+            // O(N) filter out consumed unitigs (eliminates O(N^2) Vec::remove)
+            unitigs = unitigs
+                .into_iter()
+                .enumerate()
+                .filter(|(idx, _)| !consumed.contains(idx))
+                .map(|(_, u)| u)
+                .collect();
         }
 
         unitigs
