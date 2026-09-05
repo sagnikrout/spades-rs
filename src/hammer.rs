@@ -52,7 +52,7 @@ impl ErrorCorrector {
                             // Try substituting bases along the k-mer
                             'corr: for offset in 0..k {
                                 let orig_base = seq[i + offset];
-                                for &cand_base in &[b'A', b'C', b'G', b'T'] {
+                                for &cand_base in b"ACGT" {
                                     if cand_base == orig_base {
                                         continue;
                                     }

@@ -48,8 +48,14 @@ fn test_assembly_accuracy_100_percent() {
     };
 
     let result = run_assembly(&[r1, r2], &config).expect("Assembly failed");
-    assert_eq!(result.stats.total_contigs, 1, "Expected exactly 1 assembled contig");
-    assert_eq!(result.stats.max_contig_length, 1000, "Expected exactly 1,000 bp assembled length");
+    assert_eq!(
+        result.stats.total_contigs, 1,
+        "Expected exactly 1 assembled contig"
+    );
+    assert_eq!(
+        result.stats.max_contig_length, 1000,
+        "Expected exactly 1,000 bp assembled length"
+    );
 
     // Verify 100% identity to reference
     use flate2::read::MultiGzDecoder;
@@ -78,6 +84,6 @@ fn test_assembly_accuracy_100_percent() {
         })
         .collect();
 
-    let is_match = (seq == &ref_seq) || (&rc_seq == &ref_seq);
+    let is_match = (seq == &ref_seq) || (rc_seq == ref_seq);
     assert!(is_match, "Assembled sequence must match reference with 100% identity in forward or reverse orientation!");
 }

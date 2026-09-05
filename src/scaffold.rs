@@ -52,15 +52,18 @@ impl Scaffolder {
             let mut curr = i;
 
             // Greedily find best forward link
-            while let Some((next_idx, support)) = self.find_best_forward_link(curr, n, &visited, paired_info) {
+            while let Some((next_idx, support)) =
+                self.find_best_forward_link(curr, n, &visited, paired_info)
+            {
                 if support < self.min_links {
                     break;
                 }
 
                 // Insert gap
-                current_seq.extend(std::iter::repeat(b'N').take(self.default_gap_len));
+                current_seq.extend(std::iter::repeat_n(b'N', self.default_gap_len));
                 current_seq.extend_from_slice(&contigs[next_idx].sequence);
-                current_cov += contigs[next_idx].mean_coverage * contigs[next_idx].sequence.len() as f64;
+                current_cov +=
+                    contigs[next_idx].mean_coverage * contigs[next_idx].sequence.len() as f64;
                 current_len += contigs[next_idx].sequence.len() + self.default_gap_len;
 
                 visited[next_idx] = true;
@@ -76,28 +79,26 @@ impl Scaffolder {
             scaffold_id += 1;
         }
 
-        scaffolds.sort_by(|a, b| b.sequence.len().cmp(&a.sequence.len()));
+        scaffolds.sort_by_key(|a| std::cmp::Reverse(a.sequence.len()));
         scaffolds
     }
 
     fn find_best_forward_link(
         &self,
         curr: usize,
-        n: usize,
+        _n: usize,
         visited: &[bool],
         paired_info: &PairedInfoIndex,
     ) -> Option<(usize, u32)> {
         let mut best = None;
         let mut max_support = 0;
 
-        for target in 0..n {
-            if target == curr || visited[target] {
-                continue;
-            }
-            let support = paired_info.get_support(curr, target);
-            if support > max_support {
-                max_support = support;
-                best = Some((target, support));
+        if let Some(targets) = paired_info.links.get(&curr) {
+            for (&target, link) in targets {
+                if target < visited.len() && !visited[target] && link.support_count > max_support {
+                    max_support = link.support_count;
+                    best = Some((target, link.support_count));
+                }
             }
         }
         best
@@ -106,19 +107,21 @@ impl Scaffolder {
 
 /// Writes scaffolds to a FASTA file.
 pub fn write_scaffolds_fasta<P: AsRef<Path>>(scaffolds: &[Unitig], out_path: P) -> Result<()> {
-    let mut file = File::create(out_path)?;
+    let file = File::create(out_path)?;
+    let mut writer = std::io::BufWriter::with_capacity(1024 * 1024, file);
     for (i, scaf) in scaffolds.iter().enumerate() {
         writeln!(
-            file,
+            writer,
             ">scaffold_{}_len_{}_cov_{:.1}",
             i + 1,
             scaf.sequence.len(),
             scaf.mean_coverage
         )?;
         for chunk in scaf.sequence.chunks(80) {
-            file.write_all(chunk)?;
-            file.write_all(b"\n")?;
+            writer.write_all(chunk)?;
+            writer.write_all(b"\n")?;
         }
     }
+    writer.flush()?;
     Ok(())
 }

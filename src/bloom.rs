@@ -3,6 +3,7 @@
 //! Eliminates singleton sequencing error k-mers before graph allocation.
 //! Uses atomic bit-vectors for concurrent access across all 22 threads without lock contention.
 
+use crate::dna::Kmer256;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct TwoTierFilter {
@@ -15,7 +16,7 @@ pub struct TwoTierFilter {
 impl TwoTierFilter {
     /// Creates a filter with `capacity` bits (rounded up to 64-bit words).
     pub fn new(capacity_bits: usize) -> Self {
-        let num_words = (capacity_bits + 63) / 64;
+        let num_words = capacity_bits.div_ceil(64);
         let size_bits = num_words * 64;
 
         let mut seen = Vec::with_capacity(num_words);
@@ -76,6 +77,56 @@ impl TwoTierFilter {
     pub fn is_solid(&self, kmer: u64) -> bool {
         let h1 = Self::hash_kmer(kmer, 0x517cc1b727220a95) as usize % self.size_bits;
         let h2 = Self::hash_kmer(kmer, 0x9e3779b97f4a7c15) as usize % self.size_bits;
+
+        let w1 = h1 / 64;
+        let b1 = 1u64 << (h1 % 64);
+
+        let w2 = h2 / 64;
+        let b2 = 1u64 << (h2 % 64);
+
+        (self.solid_bits[w1].load(Ordering::Relaxed) & b1 != 0)
+            && (self.solid_bits[w2].load(Ordering::Relaxed) & b2 != 0)
+    }
+
+    #[inline(always)]
+    fn hash_kmer256(kmer: Kmer256, seed: u64) -> u64 {
+        let x0 = (kmer.0 as u64) ^ ((kmer.0 >> 64) as u64);
+        let x1 = (kmer.1 as u64) ^ ((kmer.1 >> 64) as u64);
+        let mut x = x0 ^ x1 ^ seed;
+        x = x.wrapping_mul(0xff51afd7ed558ccd);
+        x ^= x >> 33;
+        x = x.wrapping_mul(0xc4ceb9fe1a85ec53);
+        x ^= x >> 33;
+        x
+    }
+
+    #[inline(always)]
+    pub fn insert_kmer256(&self, kmer: Kmer256) -> bool {
+        let h1 = Self::hash_kmer256(kmer, 0x517cc1b727220a95) as usize % self.size_bits;
+        let h2 = Self::hash_kmer256(kmer, 0x9e3779b97f4a7c15) as usize % self.size_bits;
+
+        let w1 = h1 / 64;
+        let b1 = 1u64 << (h1 % 64);
+
+        let w2 = h2 / 64;
+        let b2 = 1u64 << (h2 % 64);
+
+        let prev1 = self.seen_bits[w1].fetch_or(b1, Ordering::Relaxed);
+        let prev2 = self.seen_bits[w2].fetch_or(b2, Ordering::Relaxed);
+
+        if (prev1 & b1 != 0) && (prev2 & b2 != 0) {
+            self.solid_bits[w1].fetch_or(b1, Ordering::Relaxed);
+            self.solid_bits[w2].fetch_or(b2, Ordering::Relaxed);
+            true
+        } else {
+            false
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_solid_kmer256(&self, kmer: Kmer256) -> bool {
+        let h1 = Self::hash_kmer256(kmer, 0x517cc1b727220a95) as usize % self.size_bits;
+        let h2 = Self::hash_kmer256(kmer, 0x9e3779b97f4a7c15) as usize % self.size_bits;
 
         let w1 = h1 / 64;
         let b1 = 1u64 << (h1 % 64);

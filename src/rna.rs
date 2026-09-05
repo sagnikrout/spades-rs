@@ -29,7 +29,7 @@ impl RnaEngine {
             })
             .collect();
 
-        isoforms.sort_by(|a, b| b.sequence.len().cmp(&a.sequence.len()));
+        isoforms.sort_by_key(|a| std::cmp::Reverse(a.sequence.len()));
         isoforms
     }
 }

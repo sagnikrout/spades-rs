@@ -18,7 +18,7 @@ pub fn parse_reads_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<Vec<u8>>> {
     let path = path.as_ref();
     let file = File::open(path).with_context(|| format!("Failed to open file: {:?}", path))?;
 
-    let is_gz = path.extension().map_or(false, |ext| ext == "gz");
+    let is_gz = path.extension().is_some_and(|ext| ext == "gz");
     let reader: Box<dyn Read + Send> = if is_gz {
         Box::new(MultiGzDecoder::new(file))
     } else {

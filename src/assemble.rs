@@ -1,7 +1,7 @@
 //! End-to-End De Novo Assembly Pipeline & Assembly QC.
 
 use crate::bloom::TwoTierFilter;
-use crate::dna::{canonical_kmer_u64, string_to_kmer};
+use crate::dna::Kmer256;
 use crate::fastq::parse_reads_from_file;
 use crate::graph::CompactedGraph;
 use crate::simplify::Simplifier;
@@ -36,6 +36,8 @@ pub struct AssemblerConfig {
     pub is_sc: bool,
     pub polish: bool,
     pub long_reads: Option<Vec<std::path::PathBuf>>,
+    pub prior_contigs: Option<Vec<Vec<u8>>>,
+    pub skip_repeat_resolution: bool,
 }
 
 impl Default for AssemblerConfig {
@@ -44,7 +46,7 @@ impl Default for AssemblerConfig {
             k: 31,
             min_coverage: 5.0,
             min_contig_len: 200,
-            bloom_bits: 64 * 1024 * 1024, // 64M bits = 8 MB RAM
+            bloom_bits: 512 * 1024 * 1024, // 512M bits = 64 MB RAM
             error_correct: false,
             is_meta: false,
             is_plasmid: false,
@@ -52,6 +54,8 @@ impl Default for AssemblerConfig {
             is_sc: false,
             polish: true,
             long_reads: None,
+            prior_contigs: None,
+            skip_repeat_resolution: false,
         }
     }
 }
@@ -64,65 +68,55 @@ pub struct AssemblyResult {
     pub elapsed_secs: f64,
 }
 
-/// Assembles input FASTQ/FASTA files into contigs.
-pub fn run_assembly<P: AsRef<Path> + Sync>(
-    input_files: &[P],
+/// Assembles pre-loaded reads into contigs, enabling multi-k iteration without repeated disk I/O.
+pub fn run_assembly_with_loaded_reads(
+    all_reads: &[Vec<u8>],
+    pe_reads1: Option<&[Vec<u8>]>,
+    pe_reads2: Option<&[Vec<u8>]>,
     config: &AssemblerConfig,
 ) -> Result<AssemblyResult> {
     let start_time = Instant::now();
     let k = config.k;
 
-    println!("─── [Stage 1] Ingesting reads from {} input file(s) ───", input_files.len());
-    let mut all_reads: Vec<Vec<u8>> = Vec::new();
-    for f in input_files {
-        let reads = parse_reads_from_file(f)?;
-        println!("  • Loaded {} reads from {:?}", reads.len(), f.as_ref().file_name().unwrap_or_default());
-        all_reads.extend(reads);
-    }
-    println!("  Total reads loaded: {} (Elapsed: {:.3}s)", all_reads.len(), start_time.elapsed().as_secs_f64());
-
     println!("─── [Stage 2] Streaming reads into Two-Tier Bloom Filter (Memory Shield) ───");
     let filter = TwoTierFilter::new(config.bloom_bits);
-    println!("  Bloom filter memory: {:.2} MB", filter.memory_usage_bytes() as f64 / 1_048_576.0);
+    println!(
+        "  Bloom filter memory: {:.2} MB",
+        filter.memory_usage_bytes() as f64 / 1_048_576.0
+    );
 
     all_reads.par_iter().for_each(|seq| {
         if seq.len() < k {
             return;
         }
         for i in 0..=(seq.len() - k) {
-            if let Some(kmer) = string_to_kmer(&seq[i..i + k], k) {
-                let (can, _) = canonical_kmer_u64(kmer, k);
-                filter.insert(can);
+            if let Some(kmer) = Kmer256::from_bytes(&seq[i..i + k], k) {
+                let (can, _) = kmer.canonical(k);
+                filter.insert_kmer256(can);
             }
         }
     });
-    println!("  Bloom filter populated. (Elapsed: {:.3}s)", start_time.elapsed().as_secs_f64());
-
-    let all_reads = if config.error_correct {
-        println!("─── [Stage 2.5] BayesHammer Read Error Correction ───");
-        let corrector = crate::hammer::ErrorCorrector::new(k);
-        let (corrected, count) = corrector.correct_reads(all_reads, &filter);
-        println!("  Corrected {} reads via solid consensus (Elapsed: {:.3}s)", count, start_time.elapsed().as_secs_f64());
-        corrected
-    } else {
-        all_reads
-    };
+    println!(
+        "  Bloom filter populated. (Elapsed: {:.3}s)",
+        start_time.elapsed().as_secs_f64()
+    );
 
     println!("─── [Stage 3] Building Solid K-mer Index ───");
-    // Thread-local accumulation of solid k-mers to avoid mutex locks
-    let solid_maps: Vec<HashMap<u64, u32>> = all_reads
-        .par_chunks(2000)
+    let num_threads = rayon::current_num_threads().max(1);
+    let chunk_size = (all_reads.len() / num_threads).max(1000);
+    let mut solid_maps: Vec<HashMap<Kmer256, u32>> = all_reads
+        .par_chunks(chunk_size)
         .map(|chunk| {
-            let mut local_counts: HashMap<u64, u32> = HashMap::with_capacity(4096);
+            let mut local_counts: HashMap<Kmer256, u32> = HashMap::with_capacity(chunk.len() * 4);
 
             for seq in chunk {
                 if seq.len() < k {
                     continue;
                 }
                 for i in 0..=(seq.len() - k) {
-                    if let Some(kmer) = string_to_kmer(&seq[i..i + k], k) {
-                        let (can, _) = canonical_kmer_u64(kmer, k);
-                        if filter.is_solid(can) {
+                    if let Some(kmer) = Kmer256::from_bytes(&seq[i..i + k], k) {
+                        let (can, _) = kmer.canonical(k);
+                        if filter.is_solid_kmer256(can) {
                             *local_counts.entry(can).or_insert(0) += 1;
                         }
                     }
@@ -132,27 +126,118 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
         })
         .collect();
 
-    // Merge thread-local maps
-    let mut global_counts: HashMap<u64, u32> = HashMap::new();
-    for l_counts in solid_maps {
-        for (kmer, cnt) in l_counts {
+    // Drop filter immediately to free memory shield
+    drop(filter);
+    #[cfg(target_os = "linux")]
+    unsafe {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        malloc_trim(0);
+    }
+
+    // Merge thread-local maps by draining and popping to immediately free memory
+    let mut global_counts: HashMap<Kmer256, u32> = HashMap::new();
+    while let Some(mut l_counts) = solid_maps.pop() {
+        for (kmer, cnt) in l_counts.drain() {
             *global_counts.entry(kmer).or_insert(0) += cnt;
         }
     }
 
-    // Filter out k-mers with coverage below minimum threshold (e.g. noise filter)
-    let min_kmer_cov = (config.min_coverage * 0.2).max(2.0) as u32;
-    let solid_kmers: hashbrown::HashSet<u64> = global_counts
+    // Inject prior contigs for progressive multi-k continuity
+    if let Some(ref priors) = config.prior_contigs {
+        println!(
+            "  [Multi-K] Injecting {} prior unitigs as high-confidence backbone paths...",
+            priors.len()
+        );
+        for seq in priors {
+            if seq.len() < k {
+                continue;
+            }
+            for i in 0..=(seq.len() - k) {
+                if let Some(kmer) = Kmer256::from_bytes(&seq[i..i + k], k) {
+                    let (can, _) = kmer.canonical(k);
+                    *global_counts.entry(can).or_insert(0) += 50;
+                }
+            }
+        }
+    }
+
+    // Determine solid k-mer cutoff dynamically (noise valley detection)
+    let min_kmer_cov = if config.min_coverage > 5.0 {
+        // User explicitly specified a higher coverage threshold
+        (config.min_coverage * 0.2).max(2.0) as u32
+    } else {
+        // Auto-detect whether this is a high-coverage dataset
+        let mut sample_covs: Vec<u32> = global_counts.values().copied().collect();
+        if sample_covs.len() > 100 {
+            sample_covs.sort_unstable();
+            let max_cov = *sample_covs.last().unwrap_or(&0);
+            let p90_cov = sample_covs[sample_covs.len() * 90 / 100];
+            let top_cov = p90_cov.max(max_cov / 2);
+
+            if top_cov >= 30 {
+                // High coverage component detected! Find the error noise valley
+                let max_valley_search = (top_cov / 4).clamp(10, 80) as usize;
+                let mut hist = vec![0usize; max_valley_search + 1];
+                for &c in &sample_covs {
+                    if (c as usize) <= max_valley_search {
+                        hist[c as usize] += 1;
+                    }
+                }
+                // Find local minimum in histogram from cov 2 onwards
+                let mut valley = 2u32;
+                let mut min_val = usize::MAX;
+                for (c, &h_val) in hist.iter().enumerate().take(max_valley_search + 1).skip(2) {
+                    if h_val <= min_val {
+                        min_val = h_val;
+                        valley = c as u32;
+                    } else if h_val > min_val * 2 && c > valley as usize + 2 {
+                        // Rising out of valley
+                        break;
+                    }
+                }
+                println!(
+                    "  [Auto-Cutoff] High-coverage component detected (Top: {}x). Set noise valley cutoff: {}x",
+                    top_cov, valley
+                );
+                valley
+            } else {
+                2u32
+            }
+        } else {
+            2u32
+        }
+    };
+
+    let solid_kmers: hashbrown::HashSet<Kmer256> = global_counts
         .iter()
         .filter(|(_, &cov)| cov >= min_kmer_cov)
         .map(|(&kmer, _)| kmer)
         .collect();
 
-    println!("  Total solid k-mers retained: {} (Elapsed: {:.3}s)", solid_kmers.len(), start_time.elapsed().as_secs_f64());
+    println!(
+        "  Total solid k-mers retained: {} (Elapsed: {:.3}s)",
+        solid_kmers.len(),
+        start_time.elapsed().as_secs_f64()
+    );
 
     println!("─── [Stage 4] Compacting de Bruijn Graph into Unitigs ───");
     let cdbg = CompactedGraph::build(k, &solid_kmers, &global_counts);
-    println!("  Raw unitigs constructed: {} (Elapsed: {:.3}s)", cdbg.unitigs.len(), start_time.elapsed().as_secs_f64());
+    drop(solid_kmers);
+    drop(global_counts);
+    #[cfg(target_os = "linux")]
+    unsafe {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        malloc_trim(0);
+    }
+    println!(
+        "  Raw unitigs constructed: {} (Elapsed: {:.3}s)",
+        cdbg.unitigs.len(),
+        start_time.elapsed().as_secs_f64()
+    );
 
     let raw_unitigs = if config.is_sc {
         println!("─── [Single-Cell Mode] Normalizing MDA Coverage Discrepancies ───");
@@ -164,34 +249,57 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
     println!("─── [Stage 5] Simplification (Tip Clipping & Artifact Cleaning) ───");
     let simplifier = Simplifier::new(k, config.min_coverage, config.min_contig_len);
     let simplified_contigs = simplifier.simplify(raw_unitigs);
-    println!("  Assembled contigs after simplification: {} (Elapsed: {:.3}s)", simplified_contigs.len(), start_time.elapsed().as_secs_f64());
+    println!(
+        "  Assembled contigs after simplification: {} (Elapsed: {:.3}s)",
+        simplified_contigs.len(),
+        start_time.elapsed().as_secs_f64()
+    );
 
     println!("─── [Stage 6] ExSPAnder Repeat Resolution (Paired-End Linkages) ───");
-    let contigs = if input_files.len() >= 2 {
-        let reads1 = parse_reads_from_file(&input_files[0])?;
-        let reads2 = parse_reads_from_file(&input_files[1])?;
-        let paired_info = crate::paired_info::PairedInfoIndex::build(k, &simplified_contigs, &reads1, &reads2);
-        println!("  Paired library estimated insert size: {:.1} ± {:.1} bp", paired_info.mean_insert_size, paired_info.insert_size_stdev);
+    let contigs = if !config.skip_repeat_resolution && pe_reads1.is_some() && pe_reads2.is_some() {
+        let (r1, r2) = (pe_reads1.unwrap(), pe_reads2.unwrap());
+        let paired_info =
+            crate::paired_info::PairedInfoIndex::build(k, &simplified_contigs, r1, r2);
+        println!(
+            "  Paired library estimated insert size: {:.1} ± {:.1} bp",
+            paired_info.mean_insert_size, paired_info.insert_size_stdev
+        );
         let expander = crate::expander::ExSPAnder::default();
         let resolved = expander.resolve_repeats(k, simplified_contigs, &paired_info);
-        println!("  Contigs after repeat resolution: {} (Elapsed: {:.3}s)", resolved.len(), start_time.elapsed().as_secs_f64());
+        println!(
+            "  Contigs after repeat resolution: {} (Elapsed: {:.3}s)",
+            resolved.len(),
+            start_time.elapsed().as_secs_f64()
+        );
         resolved
     } else {
         simplified_contigs
     };
 
-    let contigs = if let Some(ref lr_paths) = config.long_reads {
-        if !lr_paths.is_empty() {
-            println!("─── [Stage 6.5] Spaligner Hybrid Long-Read Bridging ───");
-            let mut lr_seqs = Vec::new();
-            for p in lr_paths {
-                if let Ok(reads) = parse_reads_from_file(p) {
-                    lr_seqs.extend(reads);
+    let contigs = if !config.skip_repeat_resolution {
+        if let Some(ref lr_paths) = config.long_reads {
+            if !lr_paths.is_empty() {
+                println!("─── [Stage 6.5] Spaligner Hybrid Long-Read Bridging ───");
+                let mut lr_seqs = Vec::new();
+                for p in lr_paths {
+                    if let Ok(reads) = parse_reads_from_file(p) {
+                        lr_seqs.extend(reads);
+                    }
                 }
+                let bridged = crate::spaligner::LongReadResolver {
+                    k,
+                    min_seed_matches: 3,
+                }
+                .bridge_with_long_reads(contigs, &lr_seqs);
+                println!(
+                    "  Contigs after long-read bridging: {} (Elapsed: {:.3}s)",
+                    bridged.len(),
+                    start_time.elapsed().as_secs_f64()
+                );
+                bridged
+            } else {
+                contigs
             }
-            let bridged = crate::spaligner::LongReadResolver::default().bridge_with_long_reads(contigs, &lr_seqs);
-            println!("  Contigs after long-read bridging: {} (Elapsed: {:.3}s)", bridged.len(), start_time.elapsed().as_secs_f64());
-            bridged
         } else {
             contigs
         }
@@ -207,20 +315,28 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
     };
 
     println!("─── [Stage 7] Scaffolding Across Unresolved Gaps ───");
-    let scaffolds = if input_files.len() >= 2 {
-        let reads1 = parse_reads_from_file(&input_files[0])?;
-        let reads2 = parse_reads_from_file(&input_files[1])?;
-        let paired_info = crate::paired_info::PairedInfoIndex::build(k, &contigs, &reads1, &reads2);
+    let scaffolds = if !config.skip_repeat_resolution && pe_reads1.is_some() && pe_reads2.is_some() {
+        let (r1, r2) = (pe_reads1.unwrap(), pe_reads2.unwrap());
+        let paired_info = crate::paired_info::PairedInfoIndex::build(k, &contigs, r1, r2);
         crate::scaffold::Scaffolder::default().build_scaffolds(&contigs, &paired_info)
     } else {
         contigs.clone()
     };
-    println!("  Scaffolds generated: {} (Elapsed: {:.3}s)", scaffolds.len(), start_time.elapsed().as_secs_f64());
+    println!(
+        "  Scaffolds generated: {} (Elapsed: {:.3}s)",
+        scaffolds.len(),
+        start_time.elapsed().as_secs_f64()
+    );
 
-    let contigs = if config.polish {
+    let contigs = if config.polish && !config.skip_repeat_resolution {
         println!("─── [Stage 8] Consensus Base Polishing ───");
-        let (polished, fixes) = crate::polisher::Polisher::default().polish_contigs(contigs, &all_reads);
-        println!("  Polished {} base discrepancies (Elapsed: {:.3}s)", fixes, start_time.elapsed().as_secs_f64());
+        let (polished, fixes) =
+            crate::polisher::Polisher::default().polish_contigs(contigs, all_reads);
+        println!(
+            "  Polished {} base discrepancies (Elapsed: {:.3}s)",
+            fixes,
+            start_time.elapsed().as_secs_f64()
+        );
         polished
     } else {
         contigs
@@ -228,7 +344,11 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
 
     let (contigs, plasmids) = if config.is_plasmid {
         let (chrom, plas) = crate::modes::PlasmidDetector::default().extract_plasmids(contigs);
-        println!("  [Plasmid Mode] Separated {} circular/high-copy plasmids and {} chromosomal contigs", plas.len(), chrom.len());
+        println!(
+            "  [Plasmid Mode] Separated {} circular/high-copy plasmids and {} chromosomal contigs",
+            plas.len(),
+            chrom.len()
+        );
         (chrom, plas)
     } else {
         (contigs, Vec::new())
@@ -236,7 +356,10 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
 
     let contigs = if config.is_meta {
         let meta_contigs = crate::modes::apply_meta_filter(contigs, config.min_contig_len);
-        println!("  [Meta Mode] Retained {} contigs across uneven coverage depths", meta_contigs.len());
+        println!(
+            "  [Meta Mode] Retained {} contigs across uneven coverage depths",
+            meta_contigs.len()
+        );
         meta_contigs
     } else {
         contigs
@@ -253,6 +376,353 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
         stats,
         elapsed_secs: elapsed,
     })
+}
+
+/// Assembles contigs directly from 2-bit packed reads without intermediate read vector allocations.
+pub fn run_assembly_with_packed_reads(
+    packed: &crate::packed_reads::PackedReads,
+    config: &AssemblerConfig,
+) -> Result<AssemblyResult> {
+    let start_time = Instant::now();
+    let k = config.k;
+
+    println!("─── [Stage 2] Streaming reads into Two-Tier Bloom Filter (Memory Shield) ───");
+    let filter = TwoTierFilter::new(config.bloom_bits);
+    println!(
+        "  Bloom filter memory: {:.2} MB",
+        filter.memory_usage_bytes() as f64 / 1_048_576.0
+    );
+
+    let num_reads = packed.len();
+    let num_threads = rayon::current_num_threads().max(1);
+    let chunk_size = (num_reads / num_threads).max(1000);
+    let read_indices: Vec<usize> = (0..num_reads).collect();
+
+    read_indices.par_chunks(chunk_size).for_each(|chunk| {
+        let mut buf = Vec::with_capacity(512);
+        for &idx in chunk {
+            packed.get_read(idx, &mut buf);
+            if buf.len() < k {
+                continue;
+            }
+            for i in 0..=(buf.len() - k) {
+                if let Some(kmer) = Kmer256::from_bytes(&buf[i..i + k], k) {
+                    let (can, _) = kmer.canonical(k);
+                    filter.insert_kmer256(can);
+                }
+            }
+        }
+    });
+    println!(
+        "  Bloom filter populated. (Elapsed: {:.3}s)",
+        start_time.elapsed().as_secs_f64()
+    );
+
+    println!("─── [Stage 3] Building Solid K-mer Index ───");
+    const NUM_SHARDS: usize = 64;
+    let shards: Vec<std::sync::Mutex<HashMap<Kmer256, u32>>> = (0..NUM_SHARDS)
+        .map(|_| std::sync::Mutex::new(HashMap::with_capacity(75_000)))
+        .collect();
+
+    read_indices.par_chunks(chunk_size).for_each(|chunk| {
+        let mut thread_buffers: Vec<Vec<Kmer256>> = (0..NUM_SHARDS)
+            .map(|_| Vec::with_capacity(256))
+            .collect();
+        let mut buf = Vec::with_capacity(512);
+
+        for &idx in chunk {
+            packed.get_read(idx, &mut buf);
+            if buf.len() < k {
+                continue;
+            }
+            for i in 0..=(buf.len() - k) {
+                if let Some(kmer) = Kmer256::from_bytes(&buf[i..i + k], k) {
+                    let (can, _) = kmer.canonical(k);
+                    if filter.is_solid_kmer256(can) {
+                        let shard_idx = (can.0 as usize) % NUM_SHARDS;
+                        thread_buffers[shard_idx].push(can);
+                        if thread_buffers[shard_idx].len() >= 256 {
+                            let mut guard = shards[shard_idx].lock().unwrap();
+                            for km in thread_buffers[shard_idx].drain(..) {
+                                *guard.entry(km).or_insert(0) += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Flush remaining thread buffers
+        for (shard_idx, tb) in thread_buffers.iter_mut().enumerate() {
+            if !tb.is_empty() {
+                let mut guard = shards[shard_idx].lock().unwrap();
+                for km in tb.drain(..) {
+                    *guard.entry(km).or_insert(0) += 1;
+                }
+            }
+        }
+    });
+
+    // Drop filter immediately
+    drop(filter);
+    #[cfg(target_os = "linux")]
+    unsafe {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        malloc_trim(0);
+    }
+
+    // Merge non-overlapping shards into global_counts (zero key collisions!)
+    let mut global_counts: HashMap<Kmer256, u32> = HashMap::with_capacity(5_000_000);
+    for shard in shards {
+        let mut map = shard.into_inner().unwrap();
+        global_counts.extend(map.drain());
+    }
+
+    // Inject prior contigs for progressive multi-k continuity
+    if let Some(ref priors) = config.prior_contigs {
+        println!(
+            "  [Multi-K] Injecting {} prior unitigs as high-confidence backbone paths...",
+            priors.len()
+        );
+        for seq in priors {
+            if seq.len() < k {
+                continue;
+            }
+            for i in 0..=(seq.len() - k) {
+                if let Some(kmer) = Kmer256::from_bytes(&seq[i..i + k], k) {
+                    let (can, _) = kmer.canonical(k);
+                    *global_counts.entry(can).or_insert(0) += 50;
+                }
+            }
+        }
+    }
+
+    // Determine solid k-mer cutoff dynamically
+    let min_kmer_cov = if config.min_coverage > 5.0 {
+        (config.min_coverage * 0.2).max(2.0) as u32
+    } else {
+        let mut sample_covs: Vec<u32> = global_counts.values().copied().collect();
+        if sample_covs.len() > 100 {
+            sample_covs.sort_unstable();
+            let max_cov = *sample_covs.last().unwrap_or(&0);
+            let p90_cov = sample_covs[sample_covs.len() * 90 / 100];
+            let top_cov = p90_cov.max(max_cov / 2);
+
+            if top_cov >= 30 {
+                let max_valley_search = (top_cov / 4).clamp(10, 80) as usize;
+                let mut hist = vec![0usize; max_valley_search + 1];
+                for &c in &sample_covs {
+                    if (c as usize) <= max_valley_search {
+                        hist[c as usize] += 1;
+                    }
+                }
+                let mut valley = 2u32;
+                let mut min_val = usize::MAX;
+                for (c, &h_val) in hist.iter().enumerate().take(max_valley_search + 1).skip(2) {
+                    if h_val <= min_val {
+                        min_val = h_val;
+                        valley = c as u32;
+                    } else if h_val > min_val * 2 && c > valley as usize + 2 {
+                        break;
+                    }
+                }
+                println!(
+                    "  [Auto-Cutoff] High-coverage component detected (Top: {}x). Set noise valley cutoff: {}x",
+                    top_cov, valley
+                );
+                valley
+            } else {
+                2u32
+            }
+        } else {
+            2u32
+        }
+    };
+
+    let solid_kmers: hashbrown::HashSet<Kmer256> = global_counts
+        .iter()
+        .filter(|(_, &cov)| cov >= min_kmer_cov)
+        .map(|(&kmer, _)| kmer)
+        .collect();
+
+    println!(
+        "  Total solid k-mers retained: {} (Elapsed: {:.3}s)",
+        solid_kmers.len(),
+        start_time.elapsed().as_secs_f64()
+    );
+
+    println!("─── [Stage 4] Compacting de Bruijn Graph into Unitigs ───");
+    let cdbg = CompactedGraph::build(k, &solid_kmers, &global_counts);
+    drop(solid_kmers);
+    drop(global_counts);
+    #[cfg(target_os = "linux")]
+    unsafe {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        malloc_trim(0);
+    }
+    println!(
+        "  Raw unitigs constructed: {} (Elapsed: {:.3}s)",
+        cdbg.unitigs.len(),
+        start_time.elapsed().as_secs_f64()
+    );
+
+    let raw_unitigs = if config.is_sc {
+        println!("─── [Single-Cell Mode] Normalizing MDA Coverage Discrepancies ───");
+        crate::single_cell::SingleCellNormalizer::default().normalize_coverage(cdbg.unitigs)
+    } else {
+        cdbg.unitigs
+    };
+
+    println!("─── [Stage 5] Simplification (Tip Clipping & Artifact Cleaning) ───");
+    let simplifier = Simplifier::new(k, config.min_coverage, config.min_contig_len);
+    let simplified_contigs = simplifier.simplify(raw_unitigs);
+    println!(
+        "  Assembled contigs after simplification: {} (Elapsed: {:.3}s)",
+        simplified_contigs.len(),
+        start_time.elapsed().as_secs_f64()
+    );
+
+    println!("─── [Stage 6] ExSPAnder Repeat Resolution (Paired-End Linkages) ───");
+    let contigs = if !config.skip_repeat_resolution && packed.pe_boundary > 0 {
+        let paired_info =
+            crate::paired_info::PairedInfoIndex::build_from_packed(k, &simplified_contigs, packed);
+        println!(
+            "  Paired library estimated insert size: {:.1} ± {:.1} bp",
+            paired_info.mean_insert_size, paired_info.insert_size_stdev
+        );
+        let expander = crate::expander::ExSPAnder::default();
+        let resolved = expander.resolve_repeats(k, simplified_contigs, &paired_info);
+        println!(
+            "  Contigs after repeat resolution: {} (Elapsed: {:.3}s)",
+            resolved.len(),
+            start_time.elapsed().as_secs_f64()
+        );
+        resolved
+    } else {
+        simplified_contigs
+    };
+
+    let contigs = if !config.skip_repeat_resolution {
+        if let Some(ref lr_paths) = config.long_reads {
+            if !lr_paths.is_empty() {
+                println!("─── [Stage 6.5] Spaligner Hybrid Long-Read Bridging ───");
+                let mut lr_seqs = Vec::new();
+                for p in lr_paths {
+                    if let Ok(reads) = parse_reads_from_file(p) {
+                        lr_seqs.extend(reads);
+                    }
+                }
+                let bridged = crate::spaligner::LongReadResolver {
+                    k,
+                    min_seed_matches: 3,
+                }
+                .bridge_with_long_reads(contigs, &lr_seqs);
+                println!(
+                    "  Contigs after long-read bridging: {} (Elapsed: {:.3}s)",
+                    bridged.len(),
+                    start_time.elapsed().as_secs_f64()
+                );
+                bridged
+            } else {
+                contigs
+            }
+        } else {
+            contigs
+        }
+    } else {
+        contigs
+    };
+
+    let contigs = if config.is_rna {
+        println!("─── [RNA Mode] Preserving Alternative Splicing Isoforms ───");
+        crate::rna::RnaEngine::default().process_transcripts(contigs)
+    } else {
+        contigs
+    };
+
+    println!("─── [Stage 7] Scaffolding Across Unresolved Gaps ───");
+    let scaffolds = if !config.skip_repeat_resolution && packed.pe_boundary > 0 {
+        let paired_info = crate::paired_info::PairedInfoIndex::build_from_packed(k, &contigs, packed);
+        crate::scaffold::Scaffolder::default().build_scaffolds(&contigs, &paired_info)
+    } else {
+        contigs.clone()
+    };
+    println!(
+        "  Scaffolds generated: {} (Elapsed: {:.3}s)",
+        scaffolds.len(),
+        start_time.elapsed().as_secs_f64()
+    );
+
+    let contigs = if config.polish && !config.skip_repeat_resolution {
+        println!("─── [Stage 8] Consensus Base Polishing ───");
+        let (polished, fixes) =
+            crate::polisher::Polisher::default().polish_contigs_packed(contigs, packed);
+        println!(
+            "  Polished {} base discrepancies (Elapsed: {:.3}s)",
+            fixes,
+            start_time.elapsed().as_secs_f64()
+        );
+        polished
+    } else {
+        contigs
+    };
+
+    let (contigs, plasmids) = if config.is_plasmid {
+        let (chrom, plas) = crate::modes::PlasmidDetector::default().extract_plasmids(contigs);
+        println!(
+            "  [Plasmid Mode] Separated {} circular/high-copy plasmids and {} chromosomal contigs",
+            plas.len(),
+            chrom.len()
+        );
+        (chrom, plas)
+    } else {
+        (contigs, Vec::new())
+    };
+
+    let contigs = if config.is_meta {
+        let meta_contigs = crate::modes::apply_meta_filter(contigs, config.min_contig_len);
+        println!(
+            "  [Meta Mode] Retained {} contigs across uneven coverage depths",
+            meta_contigs.len()
+        );
+        meta_contigs
+    } else {
+        contigs
+    };
+
+    let stats = calculate_stats(&contigs);
+    let elapsed = start_time.elapsed().as_secs_f64();
+
+    Ok(AssemblyResult {
+        contigs,
+        scaffolds,
+        plasmids,
+        stats,
+        elapsed_secs: elapsed,
+    })
+}
+
+/// Assembles input FASTQ/FASTA files into contigs.
+pub fn run_assembly<P: AsRef<Path> + Sync>(
+    input_files: &[P],
+    config: &AssemblerConfig,
+) -> Result<AssemblyResult> {
+    println!(
+        "─── [Stage 1] Ingesting and packing reads from {} input file(s) ───",
+        input_files.len()
+    );
+    let packed = crate::packed_reads::PackedReads::from_files(input_files)?;
+    println!(
+        "  Total reads packed: {} ({:.2} MB in RAM)",
+        packed.len(),
+        packed.memory_usage_bytes() as f64 / 1_048_576.0
+    );
+
+    run_assembly_with_packed_reads(&packed, config)
 }
 
 /// Computes assembly QC metrics: N50, L50, Max length, total bases, GC%.
@@ -306,11 +776,15 @@ pub fn calculate_stats(contigs: &[crate::graph::Unitig]) -> AssemblyStats {
 }
 
 /// Writes contigs to a FASTA file.
-pub fn write_contigs_fasta<P: AsRef<Path>>(contigs: &[crate::graph::Unitig], out_path: P) -> Result<()> {
-    let mut file = File::create(out_path)?;
+pub fn write_contigs_fasta<P: AsRef<Path>>(
+    contigs: &[crate::graph::Unitig],
+    out_path: P,
+) -> Result<()> {
+    let file = File::create(out_path)?;
+    let mut writer = std::io::BufWriter::with_capacity(1024 * 1024, file);
     for (i, c) in contigs.iter().enumerate() {
         writeln!(
-            file,
+            writer,
             ">contig_{}_len_{}_cov_{:.1}",
             i + 1,
             c.sequence.len(),
@@ -318,9 +792,10 @@ pub fn write_contigs_fasta<P: AsRef<Path>>(contigs: &[crate::graph::Unitig], out
         )?;
         // Write 80 characters per line
         for chunk in c.sequence.chunks(80) {
-            file.write_all(chunk)?;
-            file.write_all(b"\n")?;
+            writer.write_all(chunk)?;
+            writer.write_all(b"\n")?;
         }
     }
+    writer.flush()?;
     Ok(())
 }

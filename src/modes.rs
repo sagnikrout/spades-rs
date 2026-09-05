@@ -51,7 +51,9 @@ impl PlasmidDetector {
             let is_high_copy = u.mean_coverage >= (median_cov * self.copy_number_threshold);
 
             // A plasmid candidate is circular or significantly high-copy
-            if (is_circular || (is_high_copy && len >= self.min_plasmid_len)) && len >= self.min_plasmid_len {
+            if (is_circular || (is_high_copy && len >= self.min_plasmid_len))
+                && len >= self.min_plasmid_len
+            {
                 plasmids.push(u);
             } else {
                 chromosomal.push(u);

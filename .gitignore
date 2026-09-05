@@ -7,6 +7,13 @@ target/
 *.gfa
 *.fastg
 *.paths
+output/
+
+# Downloaded benchmark datasets
+data/ecoli_mg1655/
+data/meta/
+data/phix/
+data/plasmid/
 
 # OS specific files
 .DS_Store

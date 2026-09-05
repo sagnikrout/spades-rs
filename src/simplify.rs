@@ -19,8 +19,8 @@ impl Simplifier {
         }
     }
 
-    /// Prunes dead-end tips, filters sequencing noise, and stitches non-branching unitigs.
-    pub fn simplify(&self, unitigs: Vec<Unitig>) -> Vec<Unitig> {
+    /// Prunes dead-end tips, pops error bubbles, and stitches non-branching unitigs iteratively.
+    pub fn simplify(&self, mut unitigs: Vec<Unitig>) -> Vec<Unitig> {
         if unitigs.is_empty() {
             return unitigs;
         }
@@ -41,31 +41,36 @@ impl Simplifier {
 
         let dynamic_tip_threshold = (median_cov * 0.15).max(self.min_coverage);
 
-        // 2. Filter out short, low-coverage error tips
-        let mut valid_unitigs: Vec<Unitig> = unitigs
-            .into_iter()
-            .filter(|u| {
-                if u.sequence.len() < 2 * self.k && u.mean_coverage < dynamic_tip_threshold {
-                    false // Filter tip
-                } else if u.mean_coverage < (self.min_coverage * 0.5) {
-                    false // Filter absolute noise
-                } else {
-                    true
-                }
-            })
-            .collect();
+        // Iterative simplification loop: alternate tip clipping, bubble popping, and path stitching
+        let mut iteration = 0;
+        let max_iterations = 8;
 
-        // 3. Stitched Unitig Paths: Connect unitigs that share unambiguous (k-1)-mer overlaps (forward or reverse complement)
-        valid_unitigs = self.stitch_unitigs(valid_unitigs);
+        while iteration < max_iterations {
+            iteration += 1;
+            let count_before = unitigs.len();
 
-        // 4. Final filter by minimum length requirement
-        let mut final_contigs: Vec<Unitig> = valid_unitigs
+            // Step A: Clip short low-coverage tips and absolute noise
+            unitigs = self.clip_tips(unitigs, dynamic_tip_threshold);
+
+            // Step B: Pop parallel sequencing error bubbles (Bulge Remover)
+            unitigs = self.pop_bubbles(unitigs);
+
+            // Step C: Stitch unambiguous unitig paths (in-degree == 1 and out-degree == 1)
+            unitigs = self.stitch_unitigs(unitigs);
+
+            if unitigs.len() == count_before {
+                break; // Converged to fixed point
+            }
+        }
+
+        // Final filter by minimum length requirement
+        let mut final_contigs: Vec<Unitig> = unitigs
             .into_iter()
-            .filter(|u| u.sequence.len() >= self.min_length || u.mean_coverage >= median_cov * 0.5)
+            .filter(|u| u.sequence.len() >= self.min_length)
             .collect();
 
         // Sort by length descending
-        final_contigs.sort_by(|a, b| b.sequence.len().cmp(&a.sequence.len()));
+        final_contigs.sort_by_key(|a| std::cmp::Reverse(a.sequence.len()));
 
         final_contigs
     }
@@ -84,7 +89,99 @@ impl Simplifier {
             .collect()
     }
 
-    /// Stitches adjacent unitigs whose ends share exact (k-1)-mer overlaps.
+    /// Filters dead-end tips and sequencing artifacts.
+    fn clip_tips(&self, unitigs: Vec<Unitig>, dynamic_tip_threshold: f64) -> Vec<Unitig> {
+        let tip_max_len = (2 * self.k).min(120);
+        unitigs
+            .into_iter()
+            .filter(|u| {
+                let is_tip =
+                    u.sequence.len() <= tip_max_len && u.mean_coverage < dynamic_tip_threshold;
+                let is_noise = u.mean_coverage < (self.min_coverage * 0.5);
+                !is_tip && !is_noise
+            })
+            .collect()
+    }
+
+    /// Identifies and removes parallel bubble paths (bulges) between common junctions.
+    fn pop_bubbles(&self, unitigs: Vec<Unitig>) -> Vec<Unitig> {
+        let k1 = self.k - 1;
+        if k1 == 0 || unitigs.len() <= 1 {
+            return unitigs;
+        }
+
+        // Map canonical endpoint pair (start_(k-1), end_(k-1)) -> list of unitig indices
+        let mut bubble_groups: hashbrown::HashMap<(Vec<u8>, Vec<u8>), Vec<usize>> =
+            hashbrown::HashMap::new();
+
+        for (idx, u) in unitigs.iter().enumerate() {
+            if u.sequence.len() < k1 {
+                continue;
+            }
+            let p = u.sequence[..k1].to_vec();
+            let q = u.sequence[u.sequence.len() - k1..].to_vec();
+            let rc_p = Self::revcomp_slice(&p);
+            let rc_q = Self::revcomp_slice(&q);
+
+            let key_fwd = (p, q);
+            let key_rev = (rc_q, rc_p);
+
+            let canonical_key = if key_fwd <= key_rev { key_fwd } else { key_rev };
+
+            bubble_groups.entry(canonical_key).or_default().push(idx);
+        }
+
+        let mut to_remove = hashbrown::HashSet::new();
+
+        for (_endpoints, members) in bubble_groups {
+            if members.len() <= 1 {
+                continue;
+            }
+
+            // Find member with highest coverage (tie-break with length)
+            let mut best_idx = members[0];
+            let mut best_cov = unitigs[best_idx].mean_coverage;
+            let mut best_len = unitigs[best_idx].sequence.len();
+
+            for &idx in &members[1..] {
+                let cov = unitigs[idx].mean_coverage;
+                let len = unitigs[idx].sequence.len();
+                if cov > best_cov || (cov == best_cov && len > best_len) {
+                    best_idx = idx;
+                    best_cov = cov;
+                    best_len = len;
+                }
+            }
+
+            // Pop inferior members if they meet bubble criteria
+            for &idx in &members {
+                if idx == best_idx {
+                    continue;
+                }
+                let len = unitigs[idx].sequence.len();
+                let len_diff = (len as isize - best_len as isize).unsigned_abs();
+
+                // Bubble criteria: length difference within 3k or coverage ratio >= 2.0
+                if len_diff <= 3 * self.k || (best_cov / unitigs[idx].mean_coverage.max(0.1)) >= 2.0
+                {
+                    to_remove.insert(idx);
+                }
+            }
+        }
+
+        if to_remove.is_empty() {
+            return unitigs;
+        }
+
+        unitigs
+            .into_iter()
+            .enumerate()
+            .filter(|(idx, _)| !to_remove.contains(idx))
+            .map(|(_, u)| u)
+            .collect()
+    }
+
+    /// Stitches adjacent unitigs whose ends share exact (k-1)-mer overlaps with in-degree == 1 and out-degree == 1.
     fn stitch_unitigs(&self, mut unitigs: Vec<Unitig>) -> Vec<Unitig> {
         let k1 = self.k - 1;
         if k1 == 0 || unitigs.len() <= 1 {
@@ -95,38 +192,63 @@ impl Simplifier {
         while changed {
             changed = false;
             let n = unitigs.len();
-            let mut merge_pair: Option<(usize, usize, bool)> = None;
 
-            'outer: for i in 0..n {
-                if unitigs[i].sequence.len() < k1 {
+            // Build index of prefixes and suffixes for degree checking
+            let mut prefix_map: hashbrown::HashMap<Vec<u8>, Vec<(usize, bool)>> =
+                hashbrown::HashMap::new();
+            let mut suffix_map: hashbrown::HashMap<Vec<u8>, Vec<(usize, bool)>> =
+                hashbrown::HashMap::new();
+
+            for (i, u_i) in unitigs.iter().enumerate().take(n) {
+                if u_i.sequence.len() < k1 {
                     continue;
                 }
-                let seq_i = &unitigs[i].sequence;
-                let suffix_i = &seq_i[seq_i.len() - k1..];
+                let seq = &u_i.sequence;
+                let prefix = seq[..k1].to_vec();
+                let suffix = seq[seq.len() - k1..].to_vec();
+                let rc_prefix = Self::revcomp_slice(&prefix);
+                let rc_suffix = Self::revcomp_slice(&suffix);
 
-                // Check forward and reverse-complement matches
-                let mut matches = Vec::new();
-                for j in 0..n {
-                    if i == j || unitigs[j].sequence.len() < k1 {
-                        continue;
-                    }
-                    let seq_j = &unitigs[j].sequence;
+                // Forward orientations
+                prefix_map.entry(prefix).or_default().push((i, false));
+                suffix_map.entry(suffix).or_default().push((i, false));
 
-                    // Match 1: suffix_i == prefix_j (Forward)
-                    if suffix_i == &seq_j[..k1] {
-                        matches.push((j, false));
-                    }
-                    // Match 2: suffix_i == rc(suffix_j) (Reverse Complement)
-                    let rc_suffix_j = Self::revcomp_slice(&seq_j[seq_j.len() - k1..]);
-                    if suffix_i == rc_suffix_j.as_slice() {
-                        matches.push((j, true));
-                    }
+                // RC orientations
+                prefix_map.entry(rc_suffix).or_default().push((i, true));
+                suffix_map.entry(rc_prefix).or_default().push((i, true));
+            }
+
+            let mut merge_pair: Option<(usize, usize, bool)> = None;
+
+            for (i, u_i) in unitigs.iter().enumerate().take(n) {
+                if u_i.sequence.len() < k1 {
+                    continue;
                 }
+                let suffix_i = u_i.sequence[u_i.sequence.len() - k1..].to_vec();
 
-                if matches.len() == 1 {
-                    let (j, is_rc) = matches[0];
-                    merge_pair = Some((i, j, is_rc));
-                    break 'outer;
+                if let Some(matches) = prefix_map.get(&suffix_i) {
+                    let valid_matches: Vec<_> = matches.iter().filter(|&&(j, _)| i != j).collect();
+                    if valid_matches.len() == 1 {
+                        let &(j, is_rc) = valid_matches[0];
+
+                        // Degree check: ensure j's incoming endpoint also has exactly 1 predecessor (i)
+                        let j_prefix = if !is_rc {
+                            unitigs[j].sequence[..k1].to_vec()
+                        } else {
+                            Self::revcomp_slice(
+                                &unitigs[j].sequence[unitigs[j].sequence.len() - k1..],
+                            )
+                        };
+
+                        if let Some(in_matches) = suffix_map.get(&j_prefix) {
+                            let valid_in: Vec<_> =
+                                in_matches.iter().filter(|&&(src, _)| src != j).collect();
+                            if valid_in.len() == 1 && valid_in[0].0 == i {
+                                merge_pair = Some((i, j, is_rc));
+                                break;
+                            }
+                        }
+                    }
                 }
             }
 
@@ -143,7 +265,8 @@ impl Simplifier {
                 let cov_j = unitigs[j].mean_coverage;
 
                 unitigs[i].sequence.extend_from_slice(&seq_j);
-                unitigs[i].mean_coverage = (cov_i * len_i as f64 + cov_j * len_j as f64) / (len_i + len_j) as f64;
+                unitigs[i].mean_coverage =
+                    (cov_i * len_i as f64 + cov_j * len_j as f64) / (len_i + len_j) as f64;
                 unitigs[i].kmers_count += unitigs[j].kmers_count;
 
                 unitigs.remove(j);

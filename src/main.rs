@@ -25,7 +25,7 @@ enum Commands {
         #[arg(short, long, default_value = "contigs.fasta")]
         output: PathBuf,
 
-        /// K-mer size (must be odd and <= 31)
+        /// K-mer size (must be odd and <= 127)
         #[arg(short, long, default_value_t = 31)]
         k: usize,
 
@@ -74,7 +74,7 @@ enum Commands {
         pacbio: Option<PathBuf>,
 
         /// Optional list of k-mers for multi-k iterative assembly (e.g. 21,33,55)
-        #[arg(long, value_delimiter = ',')]
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
         multik: Option<Vec<usize>>,
     },
 
@@ -91,6 +91,15 @@ enum Commands {
 }
 
 fn main() -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
+    unsafe {
+        extern "C" {
+            fn mallopt(param: i32, value: i32) -> i32;
+        }
+        const M_ARENA_MAX: i32 = -8;
+        mallopt(M_ARENA_MAX, 2);
+    }
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -112,7 +121,9 @@ fn main() -> anyhow::Result<()> {
             multik,
         } => {
             if let Some(t) = threads {
-                rayon::ThreadPoolBuilder::new().num_threads(t).build_global()?;
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(t)
+                    .build_global()?;
             }
 
             let mut long_reads = Vec::new();
@@ -122,21 +133,55 @@ fn main() -> anyhow::Result<()> {
             if let Some(pb) = pacbio {
                 long_reads.push(pb);
             }
-            let long_reads_opt = if !long_reads.is_empty() { Some(long_reads) } else { None };
+            let long_reads_opt = if !long_reads.is_empty() {
+                Some(long_reads)
+            } else {
+                None
+            };
 
             println!("===========================================================");
             println!("   INTELLIGENT PASCAL: ULTRA-FAST DE NOVO GENOME ASSEMBLER ");
             println!("===========================================================");
-            println!("  Hardware Concurrency: {} threads active", rayon::current_num_threads());
+            println!(
+                "  Hardware Concurrency: {} threads active",
+                rayon::current_num_threads()
+            );
             println!("  K-mer size: {}", k);
             println!("  Min Coverage: {:.1}x", coverage);
             println!("  Min Contig Length: {} bp", min_len);
-            println!("  Error Correction: {}", if error_correct { "ENABLED (BayesHammer)" } else { "DISABLED" });
+            println!(
+                "  Error Correction: {}",
+                if error_correct {
+                    "ENABLED (BayesHammer)"
+                } else {
+                    "DISABLED"
+                }
+            );
             println!("  Meta Mode: {}", if meta { "ENABLED" } else { "DISABLED" });
-            println!("  Plasmid Mode: {}", if plasmid { "ENABLED" } else { "DISABLED" });
-            println!("  RNA Mode: {}", if rna { "ENABLED (Isoform Preserver)" } else { "DISABLED" });
-            println!("  Single-Cell MDA: {}", if sc { "ENABLED (MDA Normalizer)" } else { "DISABLED" });
-            println!("  Consensus Polishing: {}", if !no_polish { "ENABLED" } else { "DISABLED" });
+            println!(
+                "  Plasmid Mode: {}",
+                if plasmid { "ENABLED" } else { "DISABLED" }
+            );
+            println!(
+                "  RNA Mode: {}",
+                if rna {
+                    "ENABLED (Isoform Preserver)"
+                } else {
+                    "DISABLED"
+                }
+            );
+            println!(
+                "  Single-Cell MDA: {}",
+                if sc {
+                    "ENABLED (MDA Normalizer)"
+                } else {
+                    "DISABLED"
+                }
+            );
+            println!(
+                "  Consensus Polishing: {}",
+                if !no_polish { "ENABLED" } else { "DISABLED" }
+            );
             if let Some(ref kms) = multik {
                 println!("  Multi-K Iteration: {:?}", kms);
             }
@@ -148,15 +193,7 @@ fn main() -> anyhow::Result<()> {
                     kmers: kms,
                     min_coverage: coverage,
                     min_contig_len: min_len,
-                    bloom_bits: 64 * 1024 * 1024,
-                };
-                run_multik_assembly(&inputs, &mk_config)?
-            } else {
-                let config = AssemblerConfig {
-                    k,
-                    min_coverage: coverage,
-                    min_contig_len: min_len,
-                    bloom_bits: 64 * 1024 * 1024,
+                    bloom_bits: 512 * 1024 * 1024,
                     error_correct,
                     is_meta: meta,
                     is_plasmid: plasmid,
@@ -164,6 +201,23 @@ fn main() -> anyhow::Result<()> {
                     is_sc: sc,
                     polish: !no_polish,
                     long_reads: long_reads_opt,
+                };
+                run_multik_assembly(&inputs, &mk_config)?
+            } else {
+                let config = AssemblerConfig {
+                    k,
+                    min_coverage: coverage,
+                    min_contig_len: min_len,
+                    bloom_bits: 512 * 1024 * 1024,
+                    error_correct,
+                    is_meta: meta,
+                    is_plasmid: plasmid,
+                    is_rna: rna,
+                    is_sc: sc,
+                    polish: !no_polish,
+                    long_reads: long_reads_opt,
+                    prior_contigs: None,
+                    skip_repeat_resolution: false,
                 };
                 run_assembly(&inputs, &config)?
             };
@@ -174,28 +228,50 @@ fn main() -> anyhow::Result<()> {
             println!("  Total Contigs:        {}", result.stats.total_contigs);
             println!("  Total Scaffolds:      {}", result.scaffolds.len());
             println!("  Total Assembled bp:   {} bp", result.stats.total_length);
-            println!("  Max Contig Length:    {} bp", result.stats.max_contig_length);
+            println!(
+                "  Max Contig Length:    {} bp",
+                result.stats.max_contig_length
+            );
             println!("  N50:                  {} bp", result.stats.n50);
             println!("  L50:                  {}", result.stats.l50);
             println!("  GC Content:           {:.2}%", result.stats.gc_content);
             println!("  Total Wall-Clock:     {:.4} seconds", result.elapsed_secs);
             println!("-----------------------------------------------------------");
 
-            write_contigs_fasta(&result.contigs, &output)?;
-            println!("  Contigs successfully exported to: {:?}", output);
+            let (contig_path, scaffold_path, gfa_path, plasmid_path) = if output.is_dir()
+                || output.extension().is_none()
+            {
+                std::fs::create_dir_all(&output)?;
+                (
+                    output.join("contigs.fasta"),
+                    output.join("scaffolds.fasta"),
+                    output.join("assembly_graph.gfa"),
+                    output.join("plasmids.fasta"),
+                )
+            } else {
+                if let Some(parent) = output.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                (
+                    output.clone(),
+                    output.with_file_name("scaffolds.fasta"),
+                    output.with_extension("gfa"),
+                    output.with_file_name("plasmids.fasta"),
+                )
+            };
 
-            let scaffold_path = output.with_file_name("scaffolds.fasta");
+            write_contigs_fasta(&result.contigs, &contig_path)?;
+            println!("  Contigs successfully exported to: {:?}", contig_path);
+
             write_scaffolds_fasta(&result.scaffolds, &scaffold_path)?;
             println!("  Scaffolds successfully exported to: {:?}", scaffold_path);
 
-            let gfa_path = output.with_extension("gfa");
             intelligent_pascal::gfa::write_graph_gfa(k, &result.contigs, &gfa_path)?;
             println!("  Assembly graph (GFA v1.1) exported to: {:?}", gfa_path);
 
             if plasmid && !result.plasmids.is_empty() {
-                let plas_path = output.with_file_name("plasmids.fasta");
-                write_contigs_fasta(&result.plasmids, &plas_path)?;
-                println!("  Plasmids successfully exported to: {:?}", plas_path);
+                write_contigs_fasta(&result.plasmids, &plasmid_path)?;
+                println!("  Plasmids successfully exported to: {:?}", plasmid_path);
             }
         }
 
@@ -229,6 +305,8 @@ fn main() -> anyhow::Result<()> {
                 is_sc: false,
                 polish: true,
                 long_reads: None,
+                prior_contigs: None,
+                skip_repeat_resolution: false,
             };
 
             let t0 = Instant::now();
@@ -239,7 +317,10 @@ fn main() -> anyhow::Result<()> {
             println!("               BENCHMARK RESULTS                           ");
             println!("-----------------------------------------------------------");
             println!("  Total Assembled Contigs: {}", result.stats.total_contigs);
-            println!("  Max Contig Length:       {} bp", result.stats.max_contig_length);
+            println!(
+                "  Max Contig Length:       {} bp",
+                result.stats.max_contig_length
+            );
             println!("  Total Wall-Clock Time:   {:.4} seconds", total_wall);
             println!("===========================================================");
         }

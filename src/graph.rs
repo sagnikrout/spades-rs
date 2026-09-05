@@ -6,23 +6,23 @@
 //!
 //! Compacts non-branching paths into maximal Unitigs.
 
-use crate::dna::{canonical_kmer_u64, revcomp_kmer_u64};
+use crate::dna::Kmer256;
 use hashbrown::{HashMap, HashSet};
 
 /// An oriented k-mer in the bidirected de Bruijn graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct OrientedKmer {
-    pub kmer: u64,     // Canonical k-mer
-    pub is_rc: bool,    // false = Forward, true = Reverse Complement
+    pub kmer: Kmer256,   // Canonical k-mer
+    pub is_rc: bool, // false = Forward, true = Reverse Complement
 }
 
 impl OrientedKmer {
     #[inline(always)]
-    pub fn explicit_seq(&self, k: usize) -> u64 {
+    pub fn explicit_seq(&self, k: usize) -> Kmer256 {
         if !self.is_rc {
             self.kmer
         } else {
-            revcomp_kmer_u64(self.kmer, k)
+            self.kmer.revcomp(k)
         }
     }
 
@@ -51,20 +51,14 @@ pub struct CompactedGraph {
 
 impl CompactedGraph {
     /// Builds maximal unitigs from the solid canonical k-mers.
-    pub fn build(
-        k: usize,
-        solid_kmers: &HashSet<u64>,
-        kmer_cov: &HashMap<u64, u32>,
-    ) -> Self {
-        let kmer_mask = if k == 32 { u64::MAX } else { (1u64 << (2 * k)) - 1 };
-
+    pub fn build(k: usize, solid_kmers: &HashSet<Kmer256>, kmer_cov: &HashMap<Kmer256, u32>) -> Self {
         // Helper closures for getting successors and predecessors
         let get_successors = |ok: OrientedKmer| -> Vec<(OrientedKmer, u8)> {
             let s = ok.explicit_seq(k);
             let mut succs = Vec::with_capacity(4);
             for b in 0..4u8 {
-                let next_val = ((s << 2) | (b as u64)) & kmer_mask;
-                let (can, is_rc) = canonical_kmer_u64(next_val, k);
+                let next_val = s.extend_right(b, k);
+                let (can, is_rc) = next_val.canonical(k);
                 if solid_kmers.contains(&can) {
                     succs.push((OrientedKmer { kmer: can, is_rc }, b));
                 }
@@ -76,8 +70,8 @@ impl CompactedGraph {
             let s = ok.explicit_seq(k);
             let mut preds = Vec::with_capacity(4);
             for a in 0..4u8 {
-                let prev_val = (s >> 2) | ((a as u64) << (2 * (k - 1)));
-                let (can, is_rc) = canonical_kmer_u64(prev_val, k);
+                let prev_val = s.prepend_left(a, k);
+                let (can, is_rc) = prev_val.canonical(k);
                 if solid_kmers.contains(&can) {
                     preds.push((OrientedKmer { kmer: can, is_rc }, a));
                 }
@@ -85,7 +79,7 @@ impl CompactedGraph {
             preds
         };
 
-        let mut visited = HashSet::<u64>::with_capacity(solid_kmers.len());
+        let mut visited = HashSet::<Kmer256>::with_capacity(solid_kmers.len());
         let mut unitigs = Vec::new();
         let mut unitig_id = 0;
 
@@ -178,12 +172,12 @@ impl CompactedGraph {
 
             // Reconstruct full unitig sequence
             let first_seq = full_path[0].explicit_seq(k);
-            let mut unitig_bytes = crate::dna::kmer_to_string(first_seq, k).into_bytes();
+            let mut unitig_bytes = first_seq.to_string(k).into_bytes();
             let mut total_cov = *kmer_cov.get(&full_path[0].kmer).unwrap_or(&1) as f64;
 
             for ok in &full_path[1..] {
                 let explicit = ok.explicit_seq(k);
-                let last_base = crate::dna::bit2_to_base((explicit & 3) as u8);
+                let last_base = crate::dna::bit2_to_base(explicit.last_base(k));
                 unitig_bytes.push(last_base);
                 total_cov += *kmer_cov.get(&ok.kmer).unwrap_or(&1) as f64;
             }
@@ -195,6 +189,68 @@ impl CompactedGraph {
                 sequence: unitig_bytes,
                 mean_coverage: mean_cov,
                 kmers_count: full_path.len(),
+            });
+            unitig_id += 1;
+        }
+
+        // Pass 2: Recover isolated cycles (circular viral genomes, plasmids, etc.)
+        for &kmer in solid_kmers {
+            if visited.contains(&kmer) {
+                continue;
+            }
+
+            let start_ok = OrientedKmer { kmer, is_rc: false };
+            let mut path: Vec<OrientedKmer> = Vec::new();
+            let mut curr = start_ok;
+
+            while !visited.contains(&curr.kmer) {
+                visited.insert(curr.kmer);
+                path.push(curr);
+
+                let succs = get_successors(curr);
+                if succs.len() != 1 {
+                    break;
+                }
+
+                let (next_ok, _) = succs[0];
+                if next_ok.kmer == start_ok.kmer {
+                    // Closed loop returned to origin
+                    break;
+                }
+                if visited.contains(&next_ok.kmer) {
+                    break;
+                }
+
+                let preds_of_next = get_predecessors(next_ok);
+                if preds_of_next.len() != 1 {
+                    break;
+                }
+
+                curr = next_ok;
+            }
+
+            if path.is_empty() {
+                continue;
+            }
+
+            let first_seq = path[0].explicit_seq(k);
+            let mut unitig_bytes = first_seq.to_string(k).into_bytes();
+            let mut total_cov = *kmer_cov.get(&path[0].kmer).unwrap_or(&1) as f64;
+
+            for ok in &path[1..] {
+                let explicit = ok.explicit_seq(k);
+                let last_base = crate::dna::bit2_to_base(explicit.last_base(k));
+                unitig_bytes.push(last_base);
+                total_cov += *kmer_cov.get(&ok.kmer).unwrap_or(&1) as f64;
+            }
+
+            let mean_cov = total_cov / path.len() as f64;
+
+            unitigs.push(Unitig {
+                id: unitig_id,
+                sequence: unitig_bytes,
+                mean_coverage: mean_cov,
+                kmers_count: path.len(),
             });
             unitig_id += 1;
         }
