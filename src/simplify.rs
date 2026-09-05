@@ -90,7 +90,7 @@ impl Simplifier {
     }
 
     /// Filters dead-end tips and sequencing artifacts with length-awareness.
-    fn clip_tips(&self, unitigs: Vec<Unitig>, dynamic_tip_threshold: f64) -> Vec<Unitig> {
+    pub fn clip_tips(&self, unitigs: Vec<Unitig>, dynamic_tip_threshold: f64) -> Vec<Unitig> {
         let tip_max_len = 2 * self.k;
         unitigs
             .into_iter()
@@ -111,7 +111,7 @@ impl Simplifier {
     }
 
     /// Identifies and removes parallel bubble paths (bulges) between common junctions.
-    fn pop_bubbles(&self, unitigs: Vec<Unitig>) -> Vec<Unitig> {
+    pub fn pop_bubbles(&self, unitigs: Vec<Unitig>) -> Vec<Unitig> {
         let k1 = self.k - 1;
         if k1 == 0 || unitigs.len() <= 1 {
             return unitigs;
@@ -189,7 +189,7 @@ impl Simplifier {
     }
 
     /// Stitches adjacent unitigs whose ends share exact (k-1)-mer overlaps with in-degree == 1 and out-degree == 1.
-    fn stitch_unitigs(&self, mut unitigs: Vec<Unitig>) -> Vec<Unitig> {
+    pub fn stitch_unitigs(&self, mut unitigs: Vec<Unitig>) -> Vec<Unitig> {
         let k1 = self.k - 1;
         if k1 == 0 || unitigs.len() <= 1 {
             return unitigs;
@@ -235,8 +235,15 @@ impl Simplifier {
 
                 if let Some(matches) = prefix_map.get(&suffix_i) {
                     let valid_matches: Vec<_> = matches.iter().filter(|&&(j, _)| i != j).collect();
-                    if valid_matches.len() == 1 {
-                        let &(j, is_rc) = valid_matches[0];
+                    let mut unique_targets: Vec<(usize, bool)> = Vec::new();
+                    for &&(j, is_rc) in &valid_matches {
+                        if !unique_targets.iter().any(|&(uj, _)| uj == j) {
+                            unique_targets.push((j, is_rc));
+                        }
+                    }
+
+                    if unique_targets.len() == 1 {
+                        let (j, is_rc) = unique_targets[0];
 
                         // Degree check: ensure j's incoming endpoint also has exactly 1 predecessor (i)
                         let j_prefix = if !is_rc {
@@ -250,7 +257,14 @@ impl Simplifier {
                         if let Some(in_matches) = suffix_map.get(&j_prefix) {
                             let valid_in: Vec<_> =
                                 in_matches.iter().filter(|&&(src, _)| src != j).collect();
-                            if valid_in.len() == 1 && valid_in[0].0 == i {
+                            let mut unique_in: Vec<usize> = Vec::new();
+                            for &&(src, _) in &valid_in {
+                                if !unique_in.contains(&src) {
+                                    unique_in.push(src);
+                                }
+                            }
+
+                            if unique_in.len() == 1 && unique_in[0] == i {
                                 merge_pair = Some((i, j, is_rc));
                                 break;
                             }

@@ -79,6 +79,10 @@ pub fn parse_reads_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<Vec<u8>>> {
     } else {
         // FASTA format
         let mut current_seq = Vec::with_capacity(1024);
+        // Finish reading remainder of the initial header line (first byte was '>')
+        line.clear();
+        buf_reader.read_line(&mut line)?;
+
         loop {
             line.clear();
             if buf_reader.read_line(&mut line)? == 0 {
