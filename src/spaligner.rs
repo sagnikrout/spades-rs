@@ -1,12 +1,12 @@
 //! Hybrid Long-Read Resolver (Module 3.3: Spaligner).
 //!
 //! Maps PacBio HiFi and Oxford Nanopore (ONT) long reads across assembly graph unitigs
-//! using seed chaining and copy-number repeat unrolling to resolve multi-kilobase
-//! repeats (such as bacterial ribosomal RNA operons).
+//! using seed chaining, repeat seed filtering, and bidirected port involution chaining
+//! to resolve multi-kilobase repeats and bridge unitigs into chromosome-scale scaffolds.
 
 use crate::dna::{canonical_kmer_u64, revcomp_bytes, string_to_kmer};
 use crate::graph::Unitig;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 use rayon::prelude::*;
 
 pub struct LongReadResolver {
@@ -35,9 +35,46 @@ struct ReadAnchor {
     hits: usize,
 }
 
+struct DisjointSet {
+    parent: Vec<usize>,
+}
+
+impl DisjointSet {
+    fn new(n: usize) -> Self {
+        Self {
+            parent: (0..n).collect(),
+        }
+    }
+
+    fn find(&mut self, i: usize) -> usize {
+        let mut root = i;
+        while root != self.parent[root] {
+            root = self.parent[root];
+        }
+        let mut curr = i;
+        while curr != root {
+            let nxt = self.parent[curr];
+            self.parent[curr] = root;
+            curr = nxt;
+        }
+        root
+    }
+
+    fn union(&mut self, i: usize, j: usize) -> bool {
+        let root_i = self.find(i);
+        let root_j = self.find(j);
+        if root_i == root_j {
+            false
+        } else {
+            self.parent[root_i] = root_j;
+            true
+        }
+    }
+}
+
 impl LongReadResolver {
     /// Bridges short-read unitigs using long reads by unrolling copy-number repeats
-    /// and resolving multi-copy unitig chains.
+    /// and resolving multi-copy unitig chains into chromosome scaffolds.
     pub fn bridge_with_long_reads(
         &self,
         unitigs: Vec<Unitig>,
@@ -52,7 +89,9 @@ impl LongReadResolver {
         let step = 5.min((seed_k / 3).max(1));
         let k1 = k.saturating_sub(1);
         let min_ov = if unitigs.len() <= 3 { (k1 / 2).max(1) } else { 10 };
-        let min_read_len = if unitigs.len() <= 3 { seed_k * 2 } else { 1500 };
+        let min_read_len = if unitigs.len() <= 3 { seed_k * 2 } else { 500.max(seed_k * 2) };
+        let min_span = if unitigs.len() <= 3 { seed_k } else { 150.max(seed_k * 2) };
+        let n_unitigs = unitigs.len();
 
         // 1. Calculate expected coverage depth to distinguish repeats from unique contigs
         let mut covs: Vec<f64> = unitigs
@@ -76,18 +115,10 @@ impl LongReadResolver {
         } else {
             unitigs
                 .iter()
-                .map(|u| u.sequence.len() >= 1500 && u.mean_coverage < median_cov * 1.35)
+                .map(|u| u.sequence.len() >= 500 && u.mean_coverage < median_cov * 1.5)
                 .collect()
         };
-        let is_repeat: Vec<bool> = unitigs
-            .iter()
-            .enumerate()
-            .map(|(i, _)| !is_unique_flank[i])
-            .collect();
-        let is_major_repeat: Vec<bool> = unitigs
-            .iter()
-            .map(|u| u.mean_coverage >= median_cov * 2.0 && u.sequence.len() >= 1000)
-            .collect();
+        let is_repeat: Vec<bool> = is_unique_flank.iter().map(|&u| !u).collect();
 
         println!(
             "  [Spaligner] Median coverage: {:.1}x, Repeat cutoff (>=1.8x): {:.1}x (Detected {} repeat unitigs, {} unique flanks)",
@@ -113,6 +144,21 @@ impl LongReadResolver {
             }
         }
 
+        // Filter high-frequency repeat seeds for large eukaryotic graphs
+        if unitigs.len() > 10 {
+            let initial_seeds = seed_to_unitig.len();
+            seed_to_unitig.retain(|_, matches| matches.len() <= 5);
+            let kept = seed_to_unitig.len();
+            if initial_seeds > 0 {
+                println!(
+                    "  [Spaligner] Filtered repeat seeds: retained {} / {} ({:.1}%)",
+                    kept,
+                    initial_seeds,
+                    (kept as f64 / initial_seeds as f64) * 100.0
+                );
+            }
+        }
+
         // 3. Trace ordered unitig anchors along each long read in parallel
         let min_support = self.min_seed_matches;
         let bridge_lists: Vec<HashMap<BridgePair, Vec<BridgeConfig>>> = long_reads
@@ -125,7 +171,6 @@ impl LongReadResolver {
                         continue;
                     }
 
-                    // Collect matching seeds on this read
                     let mut hits: Vec<(usize, bool, usize)> = Vec::new();
                     for i in (0..=(read.len() - seed_k)).step_by(step) {
                         if let Some(km) = string_to_kmer(&read[i..i + seed_k], seed_k) {
@@ -142,7 +187,6 @@ impl LongReadResolver {
                         continue;
                     }
 
-                    // Cluster hits into continuous anchors
                     hits.sort_by_key(|h| (h.0, h.1, h.2));
                     let mut raw_anchors: Vec<ReadAnchor> = Vec::new();
 
@@ -158,8 +202,8 @@ impl LongReadResolver {
                             h_count += 1;
                         } else {
                             let span = max_pos - min_pos + seed_k;
-                            let min_span = if unitigs.len() <= 3 { seed_k } else if is_unique_flank[cur_u] { 500 } else { 200 };
-                            if h_count >= min_support && span >= min_span {
+                            let required_span = if is_unique_flank[cur_u] { min_span } else { (min_span / 2).max(seed_k) };
+                            if h_count >= min_support.min(3) && span >= required_span {
                                 raw_anchors.push(ReadAnchor {
                                     u_idx: cur_u,
                                     is_rev: cur_rev,
@@ -178,8 +222,8 @@ impl LongReadResolver {
                     }
 
                     let span = max_pos - min_pos + seed_k;
-                    let min_span = if unitigs.len() <= 3 { seed_k } else if is_unique_flank[cur_u] { 500 } else { 200 };
-                    if h_count >= min_support && span >= min_span {
+                    let required_span = if is_unique_flank[cur_u] { min_span } else { (min_span / 2).max(seed_k) };
+                    if h_count >= min_support.min(3) && span >= required_span {
                         raw_anchors.push(ReadAnchor {
                             u_idx: cur_u,
                             is_rev: cur_rev,
@@ -193,10 +237,8 @@ impl LongReadResolver {
                         continue;
                     }
 
-                    // Sort anchors along the read
                     raw_anchors.sort_by_key(|a| a.start);
 
-                    // Collapse consecutive anchors of same unitig
                     let mut ordered_anchors: Vec<ReadAnchor> = Vec::with_capacity(raw_anchors.len());
                     for a in raw_anchors {
                         if let Some(last) = ordered_anchors.last_mut() {
@@ -212,7 +254,6 @@ impl LongReadResolver {
                         ordered_anchors.push(a);
                     }
 
-                    // Extract bridges from unique flank -> repeats -> unique flank
                     let n_anchors = ordered_anchors.len();
                     for i in 0..n_anchors {
                         let mut left_anchor = &ordered_anchors[i];
@@ -233,7 +274,6 @@ impl LongReadResolver {
                                     reps_list.push((cand.u_idx, cand.is_rev));
                                 }
                             } else {
-                                // Found right unique flank
                                 let u_l = left_anchor.u_idx;
                                 let u_r = cand.u_idx;
                                 let rc_l = left_anchor.is_rev;
@@ -276,169 +316,169 @@ impl LongReadResolver {
             all_bridges.len()
         );
 
-        // 4. Resolve bridges by unrolling repeats with rRNA prioritization
+        // 4. Resolve bridges using Bidirected Port Involution Chaining
         let mut sorted_bridges: Vec<((usize, usize), Vec<BridgeConfig>)> = all_bridges
             .into_iter()
             .filter(|(_, obs)| obs.len() >= min_support)
             .collect();
 
-        sorted_bridges.sort_by(|a, b| {
-            let a_spans_major = a.1.iter().any(|c| c.1.iter().any(|&(u, _)| is_major_repeat[u]));
-            let b_spans_major = b.1.iter().any(|c| c.1.iter().any(|&(u, _)| is_major_repeat[u]));
-            b_spans_major
-                .cmp(&a_spans_major)
-                .then_with(|| b.1.len().cmp(&a.1.len()))
-        });
+        sorted_bridges.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
 
-        let mut consumed_unique: HashSet<usize> = HashSet::new();
-        let mut unrolled_repeats: HashSet<usize> = HashSet::new();
-        let mut stitched_contigs: Vec<Unitig> = Vec::new();
+        let total_ports = 2 * n_unitigs;
+        let mut partner: Vec<Option<(usize, Vec<(usize, bool)>, usize)>> = vec![None; total_ports];
+        let mut dsu = DisjointSet::new(n_unitigs);
+        let mut chained_bridges = 0;
 
-        for ((u_l, u_r), obs) in sorted_bridges {
-            if consumed_unique.contains(&u_l) || consumed_unique.contains(&u_r) {
+        for ((u_l, u_r), obs) in &sorted_bridges {
+            let mut counts: HashMap<&BridgeConfig, usize> = HashMap::new();
+            for cfg in obs {
+                *counts.entry(cfg).or_insert(0) += 1;
+            }
+            let (best_cfg, sup) = counts.into_iter().max_by_key(|&(_, c)| c).unwrap();
+
+            // For larger graphs, enforce dominant orientation consistency >= 70%
+            if unitigs.len() > 10 && (sup as f64) / (obs.len() as f64) < 0.70 {
                 continue;
             }
 
-            // Select best configuration (dominant orientation and most complete repeat chain)
-            let mut counts: HashMap<BridgeConfig, usize> = HashMap::new();
-            for cfg in &obs {
-                *counts.entry(cfg.clone()).or_insert(0) += 1;
-            }
-            let (best_config, _) = counts
-                .into_iter()
-                .max_by(|(c1, sup1), (c2, sup2)| {
-                    c1.1.len().cmp(&c2.1.len()).then_with(|| sup1.cmp(sup2))
-                })
-                .unwrap();
+            let &(rc_l, ref reps, rc_r) = best_cfg;
 
-            let (rc_l, reps, rc_r) = best_config;
+            let p_l = if rc_l { 2 * u_l } else { 2 * u_l + 1 };
+            let p_r = if rc_r { 2 * u_r + 1 } else { 2 * u_r };
 
-            let left_seq = if rc_l {
-                revcomp_bytes(&unitigs[u_l].sequence)
-            } else {
-                unitigs[u_l].sequence.clone()
-            };
-
-            let mut assembled = left_seq;
-            let mut total_kmers = unitigs[u_l].kmers_count;
-            let mut cov_sum = unitigs[u_l].mean_coverage * unitigs[u_l].sequence.len() as f64;
-            let mut total_bp = unitigs[u_l].sequence.len();
-
-            // Intermediate repeats
-            for &(rep_idx, rep_rev) in &reps {
-                let rep_seq = if rep_rev {
-                    revcomp_bytes(&unitigs[rep_idx].sequence)
-                } else {
-                    unitigs[rep_idx].sequence.clone()
-                };
-
-                let mut best_overlap = 0;
-                let max_ov = k1.min(assembled.len()).min(rep_seq.len());
-                if max_ov >= min_ov {
-                    for ov in (min_ov..=max_ov).rev() {
-                        if assembled[assembled.len() - ov..] == rep_seq[..ov] {
-                            best_overlap = ov;
-                            break;
-                        }
-                    }
-                }
-
-                if best_overlap >= min_ov {
-                    assembled.extend_from_slice(&rep_seq[best_overlap..]);
-                    total_bp += rep_seq.len() - best_overlap;
-                    cov_sum += unitigs[rep_idx].mean_coverage * (rep_seq.len() - best_overlap) as f64;
-                } else {
-                    let mut short_ov = 0;
-                    for ov in (5..min_ov.min(max_ov)).rev() {
-                        if assembled[assembled.len() - ov..] == rep_seq[..ov] {
-                            short_ov = ov;
-                            break;
-                        }
-                    }
-                    if short_ov >= 5 {
-                        assembled.extend_from_slice(&rep_seq[short_ov..]);
-                        total_bp += rep_seq.len() - short_ov;
-                        cov_sum += unitigs[rep_idx].mean_coverage * (rep_seq.len() - short_ov) as f64;
-                    } else {
-                        assembled.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
-                        assembled.extend_from_slice(&rep_seq);
-                        total_bp += rep_seq.len() + 20;
-                        cov_sum += unitigs[rep_idx].mean_coverage * rep_seq.len() as f64;
-                    }
-                }
-                total_kmers += unitigs[rep_idx].kmers_count;
-                unrolled_repeats.insert(rep_idx);
+            if partner[p_l].is_some() || partner[p_r].is_some() {
+                continue;
             }
 
-            // Right flank
-            let right_seq = if rc_r {
-                revcomp_bytes(&unitigs[u_r].sequence)
-            } else {
-                unitigs[u_r].sequence.clone()
-            };
-
-            let mut best_overlap = 0;
-            let max_ov = k1.min(assembled.len()).min(right_seq.len());
-            if max_ov >= min_ov {
-                for ov in (min_ov..=max_ov).rev() {
-                    if assembled[assembled.len() - ov..] == right_seq[..ov] {
-                        best_overlap = ov;
-                        break;
-                    }
-                }
+            if !dsu.union(*u_l, *u_r) {
+                continue;
             }
 
-            if best_overlap >= min_ov {
-                assembled.extend_from_slice(&right_seq[best_overlap..]);
-                total_bp += right_seq.len() - best_overlap;
-                cov_sum += unitigs[u_r].mean_coverage * (right_seq.len() - best_overlap) as f64;
-            } else {
-                let mut short_ov = 0;
-                for ov in (5..min_ov.min(max_ov)).rev() {
-                    if assembled[assembled.len() - ov..] == right_seq[..ov] {
-                        short_ov = ov;
-                        break;
-                    }
-                }
-                if short_ov >= 5 {
-                    assembled.extend_from_slice(&right_seq[short_ov..]);
-                    total_bp += right_seq.len() - short_ov;
-                    cov_sum += unitigs[u_r].mean_coverage * (right_seq.len() - short_ov) as f64;
-                } else {
-                    assembled.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
-                    assembled.extend_from_slice(&right_seq);
-                    total_bp += right_seq.len() + 20;
-                    cov_sum += unitigs[u_r].mean_coverage * right_seq.len() as f64;
-                }
-            }
-            total_kmers += unitigs[u_r].kmers_count;
-
-            consumed_unique.insert(u_l);
-            consumed_unique.insert(u_r);
-
-            stitched_contigs.push(Unitig {
-                id: stitched_contigs.len(),
-                sequence: assembled,
-                mean_coverage: if total_bp > 0 {
-                    cov_sum / total_bp as f64
-                } else {
-                    median_cov
-                },
-                kmers_count: total_kmers,
-            });
+            partner[p_l] = Some((p_r, reps.clone(), sup));
+            let reps_rc: Vec<(usize, bool)> = reps.iter().rev().map(|&(u, rev)| (u, !rev)).collect();
+            partner[p_r] = Some((p_l, reps_rc, sup));
+            chained_bridges += 1;
         }
 
         println!(
-            "  [Spaligner] Successfully unrolled {} repeat bridges ({} unique flanks stitched, {} repeat nodes unrolled)",
-            stitched_contigs.len(),
-            consumed_unique.len(),
-            unrolled_repeats.len()
+            "  [Spaligner] Successfully connected {} bridges into scaffolds",
+            chained_bridges
         );
 
-        // Collect final unitigs
+        // 5. Reconstruct linear scaffold paths
+        let mut visited_unitigs = vec![false; n_unitigs];
+        let mut stitched_contigs: Vec<Unitig> = Vec::new();
+
+        for port in 0..total_ports {
+            let start_u = port / 2;
+            if visited_unitigs[start_u] {
+                continue;
+            }
+
+            if partner[port].is_some() {
+                continue;
+            }
+
+            let opposite_port = port ^ 1;
+            if partner[opposite_port].is_none() {
+                continue;
+            }
+
+            let mut cur_u = start_u;
+            let mut cur_is_rev = port % 2 == 1;
+
+            let mut path_unitigs: Vec<(usize, bool)> = Vec::new();
+            let mut path_reps: Vec<Vec<(usize, bool)>> = Vec::new();
+
+            loop {
+                visited_unitigs[cur_u] = true;
+                path_unitigs.push((cur_u, cur_is_rev));
+
+                let out_port = if cur_is_rev { 2 * cur_u } else { 2 * cur_u + 1 };
+
+                if let Some((next_port, ref reps, _)) = partner[out_port] {
+                    let next_u = next_port / 2;
+                    if visited_unitigs[next_u] {
+                        break;
+                    }
+                    path_reps.push(reps.clone());
+                    let next_is_rev = next_port % 2 == 1;
+                    cur_u = next_u;
+                    cur_is_rev = next_is_rev;
+                } else {
+                    break;
+                }
+            }
+
+            if path_unitigs.len() >= 2 {
+                let first_u = path_unitigs[0].0;
+                let first_rev = path_unitigs[0].1;
+                let mut seq = if first_rev {
+                    revcomp_bytes(&unitigs[first_u].sequence)
+                } else {
+                    unitigs[first_u].sequence.clone()
+                };
+
+                let mut cov_sum = unitigs[first_u].mean_coverage * unitigs[first_u].sequence.len() as f64;
+                let mut total_bp = unitigs[first_u].sequence.len();
+                let mut total_kmers = unitigs[first_u].kmers_count;
+
+                for step_idx in 0..path_reps.len() {
+                    for &(rep_u, rep_rev) in &path_reps[step_idx] {
+                        let r_seq = if rep_rev {
+                            revcomp_bytes(&unitigs[rep_u].sequence)
+                        } else {
+                            unitigs[rep_u].sequence.clone()
+                        };
+                        seq.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
+                        seq.extend_from_slice(&r_seq);
+                        total_bp += r_seq.len() + 20;
+                        cov_sum += unitigs[rep_u].mean_coverage * r_seq.len() as f64;
+                        total_kmers += unitigs[rep_u].kmers_count;
+                    }
+
+                    let (nxt_u, nxt_rev) = path_unitigs[step_idx + 1];
+                    let n_seq = if nxt_rev {
+                        revcomp_bytes(&unitigs[nxt_u].sequence)
+                    } else {
+                        unitigs[nxt_u].sequence.clone()
+                    };
+
+                    let max_ov = k1.min(seq.len()).min(n_seq.len());
+                    let mut ov_found = 0;
+                    if max_ov >= min_ov {
+                        for ov in (min_ov..=max_ov).rev() {
+                            if seq[seq.len() - ov..] == n_seq[..ov] {
+                                ov_found = ov;
+                                break;
+                            }
+                        }
+                    }
+
+                    if ov_found >= min_ov {
+                        seq.extend_from_slice(&n_seq[ov_found..]);
+                        total_bp += n_seq.len() - ov_found;
+                    } else {
+                        seq.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
+                        seq.extend_from_slice(&n_seq);
+                        total_bp += n_seq.len() + 20;
+                    }
+                    cov_sum += unitigs[nxt_u].mean_coverage * n_seq.len() as f64;
+                    total_kmers += unitigs[nxt_u].kmers_count;
+                }
+
+                stitched_contigs.push(Unitig {
+                    id: stitched_contigs.len(),
+                    sequence: seq,
+                    mean_coverage: if total_bp > 0 { cov_sum / total_bp as f64 } else { median_cov },
+                    kmers_count: total_kmers,
+                });
+            }
+        }
+
         let mut final_unitigs = stitched_contigs;
-        for (idx, u) in unitigs.into_iter().enumerate() {
-            if !consumed_unique.contains(&idx) {
+        for (i, u) in unitigs.into_iter().enumerate() {
+            if !visited_unitigs[i] {
                 final_unitigs.push(u);
             }
         }
@@ -447,4 +487,3 @@ impl LongReadResolver {
         final_unitigs
     }
 }
-

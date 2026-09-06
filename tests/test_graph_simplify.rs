@@ -1,5 +1,5 @@
-use intelligent_pascal::graph::Unitig;
-use intelligent_pascal::simplify::Simplifier;
+use spades_rs::graph::Unitig;
+use spades_rs::simplify::Simplifier;
 
 #[test]
 fn test_length_aware_tip_clipping() {

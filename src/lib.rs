@@ -7,6 +7,7 @@ pub mod gfa;
 pub mod graph;
 pub mod hammer;
 pub mod modes;
+pub mod memory;
 pub mod multik;
 pub mod packed_reads;
 pub mod paired_info;

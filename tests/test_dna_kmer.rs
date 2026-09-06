@@ -1,4 +1,4 @@
-use intelligent_pascal::dna::{
+use spades_rs::dna::{
     base_to_2bit, bit2_to_base, canonical_kmer_u64, kmer_to_string, revcomp_bytes,
     revcomp_kmer_u64, string_to_kmer, Kmer256,
 };

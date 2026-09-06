@@ -1,13 +1,13 @@
 use clap::{Parser, Subcommand};
-use intelligent_pascal::assemble::{run_assembly, write_contigs_fasta, AssemblerConfig};
-use intelligent_pascal::multik::{run_multik_assembly, MultiKConfig};
-use intelligent_pascal::scaffold::write_scaffolds_fasta;
+use spades_rs::assemble::{run_assembly, write_contigs_fasta, AssemblerConfig};
+use spades_rs::multik::{run_multik_assembly, MultiKConfig};
+use spades_rs::scaffold::write_scaffolds_fasta;
 use std::path::PathBuf;
 use std::time::Instant;
 
 #[derive(Parser, Debug)]
-#[command(name = "intelligent-pascal")]
-#[command(about = "Ultra-Fast, Low-Memory De Novo Genome Assembler in Rust", long_about = None)]
+#[command(name = "spades-rs")]
+#[command(about = "Ultra-Fast, Low-Memory De Novo Genome Assembler in Pure Rust", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -76,6 +76,10 @@ enum Commands {
         /// Optional list of k-mers for multi-k iterative assembly (e.g. 21,33,55)
         #[arg(long, value_delimiter = ',', num_args = 1..)]
         multik: Option<Vec<usize>>,
+
+        /// Maximum physical memory budget in GB (defaults to Available System RAM - 20%)
+        #[arg(long)]
+        max_memory: Option<f64>,
     },
 
     /// Run automatic benchmark on SPAdes reference test dataset
@@ -119,12 +123,15 @@ fn main() -> anyhow::Result<()> {
             nanopore,
             pacbio,
             multik,
+            max_memory,
         } => {
             if let Some(t) = threads {
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(t)
                     .build_global()?;
             }
+
+            let memory_limits = spades_rs::memory::MemoryLimits::determine(max_memory);
 
             let mut long_reads = Vec::new();
             if let Some(np) = nanopore {
@@ -140,11 +147,22 @@ fn main() -> anyhow::Result<()> {
             };
 
             println!("===========================================================");
-            println!("   INTELLIGENT PASCAL: ULTRA-FAST DE NOVO GENOME ASSEMBLER ");
+            println!("      SPADES-RS: ULTRA-FAST DE NOVO GENOME ASSEMBLER       ");
             println!("===========================================================");
             println!(
                 "  Hardware Concurrency: {} threads active",
                 rayon::current_num_threads()
+            );
+            println!(
+                "  Memory Governor:      {:.2} GB budget ({}) [System: {:.2} GB avail / {:.2} GB total]",
+                memory_limits.budget_gb(),
+                if memory_limits.is_user_specified {
+                    "User Specified: --max-memory"
+                } else {
+                    "Auto: 80% of available RAM, 20% reserved for OS"
+                },
+                memory_limits.available_gb(),
+                memory_limits.total_gb(),
             );
             println!("  K-mer size: {}", k);
             println!("  Min Coverage: {:.1}x", coverage);
@@ -193,7 +211,7 @@ fn main() -> anyhow::Result<()> {
                     kmers: kms,
                     min_coverage: coverage,
                     min_contig_len: min_len,
-                    bloom_bits: 512 * 1024 * 1024,
+                    bloom_bits: memory_limits.optimal_bloom_bits(),
                     error_correct,
                     is_meta: meta,
                     is_plasmid: plasmid,
@@ -201,6 +219,7 @@ fn main() -> anyhow::Result<()> {
                     is_sc: sc,
                     polish: !no_polish,
                     long_reads: long_reads_opt,
+                    memory_limits: Some(memory_limits),
                 };
                 run_multik_assembly(&inputs, &mk_config)?
             } else {
@@ -208,7 +227,7 @@ fn main() -> anyhow::Result<()> {
                     k,
                     min_coverage: coverage,
                     min_contig_len: min_len,
-                    bloom_bits: 512 * 1024 * 1024,
+                    bloom_bits: memory_limits.optimal_bloom_bits(),
                     error_correct,
                     is_meta: meta,
                     is_plasmid: plasmid,
@@ -218,6 +237,7 @@ fn main() -> anyhow::Result<()> {
                     long_reads: long_reads_opt,
                     prior_contigs: None,
                     skip_repeat_resolution: false,
+                    memory_limits: Some(memory_limits),
                 };
                 run_assembly(&inputs, &config)?
             };
@@ -266,7 +286,7 @@ fn main() -> anyhow::Result<()> {
             write_scaffolds_fasta(&result.scaffolds, &scaffold_path)?;
             println!("  Scaffolds successfully exported to: {:?}", scaffold_path);
 
-            intelligent_pascal::gfa::write_graph_gfa(k, &result.contigs, &gfa_path)?;
+            spades_rs::gfa::write_graph_gfa(k, &result.contigs, &gfa_path)?;
             println!("  Assembly graph (GFA v1.1) exported to: {:?}", gfa_path);
 
             if plasmid && !result.plasmids.is_empty() {
@@ -307,6 +327,7 @@ fn main() -> anyhow::Result<()> {
                 long_reads: None,
                 prior_contigs: None,
                 skip_repeat_resolution: false,
+                memory_limits: None,
             };
 
             let t0 = Instant::now();

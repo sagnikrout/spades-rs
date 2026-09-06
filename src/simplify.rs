@@ -8,6 +8,7 @@ pub struct Simplifier {
     pub k: usize,
     pub min_coverage: f64,
     pub min_length: usize,
+    pub is_rna: bool,
 }
 
 impl Simplifier {
@@ -16,6 +17,7 @@ impl Simplifier {
             k,
             min_coverage,
             min_length,
+            is_rna: false,
         }
     }
 
@@ -39,7 +41,11 @@ impl Simplifier {
             self.min_coverage
         };
 
-        let dynamic_tip_threshold = (median_cov * 0.15).max(self.min_coverage);
+        let dynamic_tip_threshold = if self.is_rna {
+            self.min_coverage.min(2.0)
+        } else {
+            (median_cov * 0.15).max(self.min_coverage)
+        };
 
         // Iterative simplification loop: alternate tip clipping, bubble popping, and path stitching
         let mut iteration = 0;
@@ -167,6 +173,15 @@ impl Simplifier {
                 }
                 let len = unitigs[idx].sequence.len();
                 let len_diff = (len as isize - best_len as isize).unsigned_abs();
+
+                // If in RNA mode, preserve alternative splicing isoforms
+                if self.is_rna {
+                    // Only pop if it is clearly an error bubble: 1-bp mismatch or identical length with low coverage
+                    if unitigs[idx].mean_coverage < 1.5 && len_diff <= 1 {
+                        to_remove.insert(idx);
+                    }
+                    continue;
+                }
 
                 // Bubble criteria: length difference within 3k or coverage ratio >= 2.0
                 if len_diff <= 3 * self.k || (best_cov / unitigs[idx].mean_coverage.max(0.1)) >= 2.0

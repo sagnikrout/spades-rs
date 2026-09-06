@@ -38,6 +38,7 @@ pub struct AssemblerConfig {
     pub long_reads: Option<Vec<std::path::PathBuf>>,
     pub prior_contigs: Option<Vec<Vec<u8>>>,
     pub skip_repeat_resolution: bool,
+    pub memory_limits: Option<crate::memory::MemoryLimits>,
 }
 
 impl Default for AssemblerConfig {
@@ -56,6 +57,7 @@ impl Default for AssemblerConfig {
             long_reads: None,
             prior_contigs: None,
             skip_repeat_resolution: false,
+            memory_limits: None,
         }
     }
 }
@@ -135,6 +137,11 @@ pub fn run_assembly_with_loaded_reads(
         }
         malloc_trim(0);
     }
+    if let Some(ref limits) = config.memory_limits {
+        if let Err(e) = limits.check_headroom() {
+            eprintln!("  [Memory Governor Warning] {}", e);
+        }
+    }
 
     // Merge thread-local maps by draining and popping to immediately free memory
     let mut global_counts: HashMap<Kmer256, u32> = HashMap::new();
@@ -163,45 +170,46 @@ pub fn run_assembly_with_loaded_reads(
         }
     }
 
-    // Determine solid k-mer cutoff dynamically (noise valley detection)
+    // Determine solid k-mer cutoff dynamically (robust noise valley detection)
     let min_kmer_cov = if config.min_coverage > 5.0 {
-        // User explicitly specified a higher coverage threshold
-        (config.min_coverage * 0.2).max(2.0) as u32
+        (config.min_coverage * 0.2).clamp(2.0, 10.0) as u32
     } else {
-        // Auto-detect whether this is a high-coverage dataset
         let mut sample_covs: Vec<u32> = global_counts.values().copied().collect();
         if sample_covs.len() > 100 {
             sample_covs.sort_unstable();
-            let max_cov = *sample_covs.last().unwrap_or(&0);
-            let p90_cov = sample_covs[sample_covs.len() * 90 / 100];
-            let top_cov = p90_cov.max(max_cov / 2);
-
+            let top_cov = sample_covs[sample_covs.len() * 95 / 100];
             if top_cov >= 30 {
-                // High coverage component detected! Find the error noise valley
-                let max_valley_search = (top_cov / 4).clamp(10, 80) as usize;
+                let max_valley_search = (top_cov / 4).clamp(10, 35) as usize;
                 let mut hist = vec![0usize; max_valley_search + 1];
                 for &c in &sample_covs {
                     if (c as usize) <= max_valley_search {
                         hist[c as usize] += 1;
                     }
                 }
-                // Find local minimum in histogram from cov 2 onwards
                 let mut valley = 2u32;
                 let mut min_val = usize::MAX;
+                let mut found_valley = false;
                 for (c, &h_val) in hist.iter().enumerate().take(max_valley_search + 1).skip(2) {
                     if h_val <= min_val {
                         min_val = h_val;
                         valley = c as u32;
                     } else if h_val > min_val * 2 && c > valley as usize + 2 {
-                        // Rising out of valley
+                        found_valley = true;
                         break;
                     }
                 }
-                println!(
-                    "  [Auto-Cutoff] High-coverage component detected (Top: {}x). Set noise valley cutoff: {}x",
-                    top_cov, valley
-                );
-                valley
+                let cutoff = if found_valley {
+                    valley
+                } else {
+                    2u32
+                };
+                if cutoff > 2 {
+                    println!(
+                        "  [Auto-Cutoff] Robust noise valley detected at {}x (Top: {}x)",
+                        cutoff, top_cov
+                    );
+                }
+                cutoff
             } else {
                 2u32
             }
@@ -238,6 +246,11 @@ pub fn run_assembly_with_loaded_reads(
         cdbg.unitigs.len(),
         start_time.elapsed().as_secs_f64()
     );
+    if let Some(ref limits) = config.memory_limits {
+        if let Err(e) = limits.check_headroom() {
+            eprintln!("  [Memory Governor Warning] {}", e);
+        }
+    }
 
     let raw_unitigs = if config.is_sc {
         println!("─── [Single-Cell Mode] Normalizing MDA Coverage Discrepancies ───");
@@ -247,7 +260,8 @@ pub fn run_assembly_with_loaded_reads(
     };
 
     println!("─── [Stage 5] Simplification (Tip Clipping & Artifact Cleaning) ───");
-    let simplifier = Simplifier::new(k, config.min_coverage, config.min_contig_len);
+    let mut simplifier = Simplifier::new(k, config.min_coverage, config.min_contig_len);
+    simplifier.is_rna = config.is_rna;
     let simplified_contigs = simplifier.simplify(raw_unitigs);
     println!(
         "  Assembled contigs after simplification: {} (Elapsed: {:.3}s)",
@@ -343,7 +357,11 @@ pub fn run_assembly_with_loaded_reads(
     };
 
     let (contigs, plasmids) = if config.is_plasmid {
-        let (chrom, plas) = crate::modes::PlasmidDetector::default().extract_plasmids(contigs);
+        let (chrom, plas) = crate::modes::PlasmidDetector {
+            k: config.k,
+            ..Default::default()
+        }
+        .extract_plasmids(contigs);
         println!(
             "  [Plasmid Mode] Separated {} circular/high-copy plasmids and {} chromosomal contigs",
             plas.len(),
@@ -472,6 +490,11 @@ pub fn run_assembly_with_packed_reads(
         }
         malloc_trim(0);
     }
+    if let Some(ref limits) = config.memory_limits {
+        if let Err(e) = limits.check_headroom() {
+            eprintln!("  [Memory Governor Warning] {}", e);
+        }
+    }
 
     // Merge non-overlapping shards into global_counts (zero key collisions!)
     let mut global_counts: HashMap<Kmer256, u32> = HashMap::with_capacity(5_000_000);
@@ -499,19 +522,16 @@ pub fn run_assembly_with_packed_reads(
         }
     }
 
-    // Determine solid k-mer cutoff dynamically
+    // Determine solid k-mer cutoff dynamically (robust noise valley detection)
     let min_kmer_cov = if config.min_coverage > 5.0 {
-        (config.min_coverage * 0.2).max(2.0) as u32
+        (config.min_coverage * 0.2).clamp(2.0, 10.0) as u32
     } else {
         let mut sample_covs: Vec<u32> = global_counts.values().copied().collect();
         if sample_covs.len() > 100 {
             sample_covs.sort_unstable();
-            let max_cov = *sample_covs.last().unwrap_or(&0);
-            let p90_cov = sample_covs[sample_covs.len() * 90 / 100];
-            let top_cov = p90_cov.max(max_cov / 2);
-
+            let top_cov = sample_covs[sample_covs.len() * 95 / 100];
             if top_cov >= 30 {
-                let max_valley_search = (top_cov / 4).clamp(10, 80) as usize;
+                let max_valley_search = (top_cov / 4).clamp(10, 35) as usize;
                 let mut hist = vec![0usize; max_valley_search + 1];
                 for &c in &sample_covs {
                     if (c as usize) <= max_valley_search {
@@ -520,19 +540,28 @@ pub fn run_assembly_with_packed_reads(
                 }
                 let mut valley = 2u32;
                 let mut min_val = usize::MAX;
+                let mut found_valley = false;
                 for (c, &h_val) in hist.iter().enumerate().take(max_valley_search + 1).skip(2) {
                     if h_val <= min_val {
                         min_val = h_val;
                         valley = c as u32;
                     } else if h_val > min_val * 2 && c > valley as usize + 2 {
+                        found_valley = true;
                         break;
                     }
                 }
-                println!(
-                    "  [Auto-Cutoff] High-coverage component detected (Top: {}x). Set noise valley cutoff: {}x",
-                    top_cov, valley
-                );
-                valley
+                let cutoff = if found_valley {
+                    valley
+                } else {
+                    2u32
+                };
+                if cutoff > 2 {
+                    println!(
+                        "  [Auto-Cutoff] Robust noise valley detected at {}x (Top: {}x)",
+                        cutoff, top_cov
+                    );
+                }
+                cutoff
             } else {
                 2u32
             }
@@ -569,6 +598,11 @@ pub fn run_assembly_with_packed_reads(
         cdbg.unitigs.len(),
         start_time.elapsed().as_secs_f64()
     );
+    if let Some(ref limits) = config.memory_limits {
+        if let Err(e) = limits.check_headroom() {
+            eprintln!("  [Memory Governor Warning] {}", e);
+        }
+    }
 
     let raw_unitigs = if config.is_sc {
         println!("─── [Single-Cell Mode] Normalizing MDA Coverage Discrepancies ───");
@@ -578,7 +612,8 @@ pub fn run_assembly_with_packed_reads(
     };
 
     println!("─── [Stage 5] Simplification (Tip Clipping & Artifact Cleaning) ───");
-    let simplifier = Simplifier::new(k, config.min_coverage, config.min_contig_len);
+    let mut simplifier = Simplifier::new(k, config.min_coverage, config.min_contig_len);
+    simplifier.is_rna = config.is_rna;
     let simplified_contigs = simplifier.simplify(raw_unitigs);
     println!(
         "  Assembled contigs after simplification: {} (Elapsed: {:.3}s)",
@@ -672,7 +707,11 @@ pub fn run_assembly_with_packed_reads(
     };
 
     let (contigs, plasmids) = if config.is_plasmid {
-        let (chrom, plas) = crate::modes::PlasmidDetector::default().extract_plasmids(contigs);
+        let (chrom, plas) = crate::modes::PlasmidDetector {
+            k: config.k,
+            ..Default::default()
+        }
+        .extract_plasmids(contigs);
         println!(
             "  [Plasmid Mode] Separated {} circular/high-copy plasmids and {} chromosomal contigs",
             plas.len(),

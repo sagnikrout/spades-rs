@@ -6,7 +6,7 @@
 //! 3. Parallel error bubble popping and automatic noise valley thresholding.
 //! 4. Generation of a >= 5.0 kb single contig matching the NCBI reference with >= 99.8% identity.
 
-use intelligent_pascal::assemble::{run_assembly, AssemblerConfig};
+use spades_rs::assemble::{run_assembly, AssemblerConfig};
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;

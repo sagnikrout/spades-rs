@@ -1,9 +1,21 @@
 [package]
-name = "intelligent-pascal"
-version = "0.1.0"
+name = "spades-rs"
+version = "1.0.0"
 edition = "2021"
-authors = ["Antigravity High-Performance Genomics"]
-description = "Ultra-fast, low-memory de novo genome assembler designed for modern multi-core SIMD hardware"
+authors = ["Sagnik Rout <sagnikrout@users.noreply.github.com>", "Antigravity High-Performance Genomics"]
+description = "Ultra-Fast, Low-Memory De Novo Genome Assembler in Pure Rust (High-Performance Modern SPAdes Alternative)"
+repository = "https://github.com/sagnikrout/spades-rs"
+readme = "README.md"
+license = "MIT"
+keywords = ["bioinformatics", "genomics", "genome-assembler", "spades", "de-novo"]
+
+[lib]
+name = "spades_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "spades-rs"
+path = "src/main.rs"
 
 [dependencies]
 rayon = "1.10"

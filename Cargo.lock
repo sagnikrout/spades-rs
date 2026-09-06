@@ -204,18 +204,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "intelligent-pascal"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "flate2",
- "hashbrown",
- "memmap2",
- "rayon",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -295,6 +283,18 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
+name = "spades-rs"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "flate2",
+ "hashbrown",
+ "memmap2",
+ "rayon",
+]
 
 [[package]]
 name = "strsim"

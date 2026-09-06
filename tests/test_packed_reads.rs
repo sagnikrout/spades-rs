@@ -1,4 +1,4 @@
-use intelligent_pascal::packed_reads::PackedReads;
+use spades_rs::packed_reads::PackedReads;
 
 #[test]
 fn test_packed_reads_all_modulo4_lengths() {

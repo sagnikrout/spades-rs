@@ -9,12 +9,18 @@ target/
 *.paths
 output/
 
-# Downloaded benchmark datasets
-data/ecoli_mg1655/
-data/meta/
-data/phix/
-data/plasmid/
+# Downloaded benchmark datasets (raw sequencing data)
+data/
+*.fq.gz
+*.fastq.gz
+*.fastq
+*.fq
 
-# OS specific files
+# Python cache
+**/__pycache__/
+*.pyc
+
+# OS and log files
 .DS_Store
 Thumbs.db
+*.log

@@ -1,6 +1,6 @@
-use intelligent_pascal::fastq::parse_reads_from_file;
-use intelligent_pascal::gfa::write_graph_gfa;
-use intelligent_pascal::graph::Unitig;
+use spades_rs::fastq::parse_reads_from_file;
+use spades_rs::gfa::write_graph_gfa;
+use spades_rs::graph::Unitig;
 use std::fs::File;
 use std::io::{Read, Write};
 

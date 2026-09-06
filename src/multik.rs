@@ -21,6 +21,7 @@ pub struct MultiKConfig {
     pub is_sc: bool,
     pub polish: bool,
     pub long_reads: Option<Vec<PathBuf>>,
+    pub memory_limits: Option<crate::memory::MemoryLimits>,
 }
 
 impl Default for MultiKConfig {
@@ -37,6 +38,7 @@ impl Default for MultiKConfig {
             is_sc: false,
             polish: true,
             long_reads: None,
+            memory_limits: None,
         }
     }
 }
@@ -84,13 +86,14 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
             bloom_bits: config.bloom_bits,
             error_correct: config.error_correct && step == 0, // Error correct once at the beginning
             is_meta: config.is_meta,
-            is_plasmid: config.is_plasmid,
+            is_plasmid: config.is_plasmid && is_last_step,
             is_rna: config.is_rna,
             is_sc: config.is_sc,
             polish: config.polish && is_last_step, // Polish on final assembly
             long_reads: if is_last_step { config.long_reads.clone() } else { None },
             prior_contigs: prior_contigs.clone(),
             skip_repeat_resolution: !is_last_step,
+            memory_limits: config.memory_limits,
         };
 
         let result = run_assembly_with_packed_reads(&packed, &sub_config)?;

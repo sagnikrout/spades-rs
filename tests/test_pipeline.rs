@@ -1,6 +1,6 @@
-use intelligent_pascal::assemble::{run_assembly, AssemblerConfig};
-use intelligent_pascal::dna::{canonical_kmer_u64, revcomp_kmer_u64, string_to_kmer};
-use intelligent_pascal::hammer::hamming_distance_2bit;
+use spades_rs::assemble::{run_assembly, AssemblerConfig};
+use spades_rs::dna::{canonical_kmer_u64, revcomp_kmer_u64, string_to_kmer};
+use spades_rs::hammer::hamming_distance_2bit;
 use std::path::PathBuf;
 
 #[test]

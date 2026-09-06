@@ -1,8 +1,8 @@
 use hashbrown::HashMap;
-use intelligent_pascal::expander::ExSPAnder;
-use intelligent_pascal::graph::Unitig;
-use intelligent_pascal::paired_info::{PairedInfoIndex, PairedLink};
-use intelligent_pascal::spaligner::LongReadResolver;
+use spades_rs::expander::ExSPAnder;
+use spades_rs::graph::Unitig;
+use spades_rs::paired_info::{PairedInfoIndex, PairedLink};
+use spades_rs::spaligner::LongReadResolver;
 
 #[test]
 fn test_expander_bifurcation_resolution() {

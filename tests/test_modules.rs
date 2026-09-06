@@ -1,11 +1,11 @@
 use hashbrown::HashMap;
-use intelligent_pascal::graph::Unitig;
-use intelligent_pascal::modes::{apply_meta_filter, PlasmidDetector};
-use intelligent_pascal::paired_info::{PairedInfoIndex, PairedLink};
-use intelligent_pascal::polisher::Polisher;
-use intelligent_pascal::rna::RnaEngine;
-use intelligent_pascal::scaffold::Scaffolder;
-use intelligent_pascal::single_cell::SingleCellNormalizer;
+use spades_rs::graph::Unitig;
+use spades_rs::modes::{apply_meta_filter, PlasmidDetector};
+use spades_rs::paired_info::{PairedInfoIndex, PairedLink};
+use spades_rs::polisher::Polisher;
+use spades_rs::rna::RnaEngine;
+use spades_rs::scaffold::Scaffolder;
+use spades_rs::single_cell::SingleCellNormalizer;
 
 #[test]
 fn test_plasmid_detector() {
@@ -235,7 +235,7 @@ fn test_polisher() {
 
 #[test]
 fn test_spaligner_hybrid() {
-    use intelligent_pascal::spaligner::LongReadResolver;
+    use spades_rs::spaligner::LongReadResolver;
 
     let resolver = LongReadResolver {
         k: 5,
@@ -268,7 +268,7 @@ fn test_spaligner_hybrid() {
 
 #[test]
 fn test_local_gap_closer() {
-    use intelligent_pascal::scaffold::LocalGapCloser;
+    use spades_rs::scaffold::LocalGapCloser;
 
     let closer = LocalGapCloser {
         k: 5,

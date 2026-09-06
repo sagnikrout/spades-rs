@@ -160,8 +160,10 @@ impl Kmer256 {
             let lo_rc = revcomp_kmer_u128(self.0, 64);
             let hi_rc = revcomp_kmer_u128(self.1, k2);
 
-            let rc_lo = (hi_rc << (2 * (64 - k2))) | (lo_rc >> (2 * k2));
-            let mask_hi = if k2 == 64 { u128::MAX } else { (1u128 << (2 * k2)) - 1 };
+            let shift_lo = 2 * (64 - k2);
+            let rc_lo = if shift_lo >= 128 { 0 } else { hi_rc << shift_lo }
+                | if k2 >= 64 { 0 } else { lo_rc >> (2 * k2) };
+            let mask_hi = if k2 >= 64 { u128::MAX } else { (1u128 << (2 * k2)) - 1 };
             let rc_hi = lo_rc & mask_hi;
             Kmer256(rc_lo, rc_hi)
         }

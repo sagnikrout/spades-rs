@@ -16,7 +16,7 @@ impl Default for PlasmidDetector {
         Self {
             k: 31,
             min_plasmid_len: 300,
-            copy_number_threshold: 2.0,
+            copy_number_threshold: 1.8,
         }
     }
 }
@@ -28,7 +28,7 @@ impl PlasmidDetector {
             return (Vec::new(), Vec::new());
         }
 
-        let k1 = self.k - 1;
+        let k1 = self.k.saturating_sub(1);
 
         // Compute median coverage across all contigs
         let mut covs: Vec<f64> = unitigs.iter().map(|u| u.mean_coverage).collect();
@@ -40,15 +40,22 @@ impl PlasmidDetector {
 
         for u in unitigs {
             let len = u.sequence.len();
-            let is_circular = if len >= k1 && k1 > 0 {
-                let prefix = &u.sequence[..k1];
-                let suffix = &u.sequence[len - k1..];
-                prefix == suffix
+            // Check topological circularity (matching prefix and suffix overlap of length >= 15 up to k-1)
+            let is_circular = if len >= 20 && len <= 450_000 {
+                let max_overlap = k1.min(len / 2);
+                let mut circular = false;
+                for check_k in (15..=max_overlap).rev() {
+                    if u.sequence[..check_k] == u.sequence[len - check_k..] {
+                        circular = true;
+                        break;
+                    }
+                }
+                circular
             } else {
                 false
             };
 
-            let is_high_copy = u.mean_coverage >= (median_cov * self.copy_number_threshold);
+            let is_high_copy = len <= 350_000 && u.mean_coverage >= (median_cov * self.copy_number_threshold);
 
             // A plasmid candidate is circular or significantly high-copy
             if (is_circular || (is_high_copy && len >= self.min_plasmid_len))

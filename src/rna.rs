@@ -13,7 +13,7 @@ impl Default for RnaEngine {
     fn default() -> Self {
         Self {
             min_isoform_len: 200,
-            min_isoform_coverage: 3.0,
+            min_isoform_coverage: 1.5,
         }
     }
 }

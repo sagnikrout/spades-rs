@@ -1,11 +1,17 @@
-# Intelligent Pascal (AetherAssembler)
+# spades-rs
 
-**Ultra-Fast, Memory-Shielded De Novo Genome Assembler in Rust**
+**Ultra-Fast, Memory-Shielded De Novo Genome Assembler in Pure Rust**
 
-[![Rust CI](https://github.com/intelligent-pascal/intelligent-pascal/actions/workflows/ci.yml/badge.svg)](https://github.com/intelligent-pascal/intelligent-pascal)
+[![Rust CI](https://github.com/sagnikrout/spades-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/sagnikrout/spades-rs)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release: v1.0.0](https://img.shields.io/badge/Release-v1.0.0-teal.svg)](https://github.com/sagnikrout/spades-rs/releases)
 
-`intelligent-pascal` is a modern, modular, single-binary rewrite of the core algorithms behind classical *de novo* genome assemblers (like SPAdes). Built from the ground up in Rust for modern multi-core SIMD architectures, it solves the notorious memory-bloat, CPU thrashing, and process overhead of legacy bioinformatics tools.
+`spades-rs` is a high-performance, single-binary rewrite of the core algorithms behind classical *de novo* genome assemblers (like SPAdes). Built from the ground up in 100% safe, modern Rust for multi-core SIMD architectures, it eliminates the notorious memory bloat, process crashes, and CPU thrashing of legacy bioinformatics tools.
+
+* **10× – 32× Less Memory**: Runs on standard laptops and workstations via lock-free Two-Tier Bloom filters and 2-bit packed streaming.
+* **Automatic Hardware Memory Governor**: Dynamically locks budget to `Available System RAM - 20%`, preventing OOM crashes.
+* **3× – 4× Faster Wall-Clock**: Assembles full bacterial isolates in ~4 minutes and viral genomes in under 1 second.
+* **Complete Multi-Omics Suite**: Built-in support for WGS isolates, metagenomes (`--meta`), plasmids (`--plasmid`), RNA transcriptomes (`--rna`), single-cell MDA (`--sc`), hybrid long-read repeat bridging (`--nanopore`, `--pacbio`), and progressive multi-K iteration (`--multik`).
 
 ---
 
@@ -14,7 +20,7 @@
 ### 1. Full Bacterial Isolate Benchmark (*E. coli* MG1655, 100x depth, 1.28M PE reads, Multi-K 33,55,77,99,111)
 Measured empirically on an **Intel Core Ultra 9 185H (22 logical threads, AVX2, 32 GB RAM)** against NCBI Reference `NC_000913.3` (4.64 Mb):
 
-| Metric | Legacy SPAdes v4.3.0 | Intelligent Pascal (Rust) | Advantage / Delta |
+| Metric | Legacy SPAdes v4.3.0 | spades-rs (Rust) | Advantage / Delta |
 | :--- | :--- | :--- | :--- |
 | **Elapsed Wall-Clock** | 834.93 s (13m 55s) | **259.86 s (4m 20s)** | **3.21x Faster** |
 | **User CPU Time** | 5,567.95 s (92m 48s) | **2,275.41 s (37m 55s)** | **2.45x Less CPU Compute** |
@@ -23,7 +29,7 @@ Measured empirically on an **Intel Core Ultra 9 185H (22 logical threads, AVX2, 
 | **Genome Fraction** | 99.19% | **98.82%** | **High-fidelity de novo representation** |
 
 ### 2. Hybrid Assembly with Long Reads (*E. coli* MG1655 + Oxford Nanopore `DRR242214`)
-| Metric | Legacy SPAdes v4.3.0 | Intelligent Pascal (Rust) | Advantage / Delta |
+| Metric | Legacy SPAdes v4.3.0 | spades-rs (Rust) | Advantage / Delta |
 | :--- | :--- | :--- | :--- |
 | **Elapsed Wall-Clock** | 961.68 s (16m 01s) | **256.63 s (4m 17s)** | **3.75x Faster** |
 | **Peak RAM (Max RSS)** | 5,278.59 MB (**5.28 GB**) | **2,115.82 MB (2.12 GB)** | **2.50x Less Memory** |
@@ -93,13 +99,13 @@ The engine is decomposed into 5 distinct architectural layers across 16 self-con
 
 ### Build from Source
 ```bash
-git clone https://github.com/intelligent-pascal/intelligent-pascal.git
-cd intelligent-pascal
+git clone https://github.com/sagnikrout/spades-rs.git
+cd spades-rs
 
 # Optimized release build with LTO and native SIMD vectorization:
 cargo build --release
 ```
-The compiled standalone executable will be located at `target/release/intelligent-pascal` (~950 KB).
+The compiled standalone executable will be located at `target/release/spades-rs` (~1.1 MB).
 
 ---
 
@@ -107,7 +113,7 @@ The compiled standalone executable will be located at `target/release/intelligen
 
 ### 1. Standard High-Speed De Novo Assembly
 ```bash
-./target/release/intelligent-pascal assemble \
+./target/release/spades-rs assemble \
     -i reads_1.fq.gz reads_2.fq.gz \
     -o contigs.fasta \
     -k 31 \
@@ -116,19 +122,28 @@ The compiled standalone executable will be located at `target/release/intelligen
 Outputs:
 * `contigs.fasta`: Primary assembled genomic contigs.
 * `scaffolds.fasta`: Scaffolds linked across unresolved repeat gaps.
-* `contigs.gfa`: Standard Graphical Fragment Assembly v1.1 (viewable in [Bandage](https://rrwick.github.io/Bandage/)).
+* `assembly_graph.gfa`: Standard Graphical Fragment Assembly v1.1 (viewable in [Bandage](https://rrwick.github.io/Bandage/)).
 
-### 2. Hybrid Assembly (Illumina + Oxford Nanopore / PacBio)
+### 2. Hardware Memory Governor (Available RAM - 20%)
+By default, `spades-rs` auto-detects real-time system memory and bounds its working envelope to **80% of available RAM** (leaving 20% headroom for OS, disk cache, and glibc arenas). To specify a custom limit:
 ```bash
-./target/release/intelligent-pascal assemble \
+./target/release/spades-rs assemble \
+    -i reads_1.fq.gz reads_2.fq.gz \
+    --max-memory 4.5 \
+    -o contigs.fasta
+```
+
+### 3. Hybrid Assembly (Illumina + Oxford Nanopore / PacBio)
+```bash
+./target/release/spades-rs assemble \
     -i short_reads_1.fq.gz short_reads_2.fq.gz \
     --nanopore ont_long_reads.fq.gz \
     -o hybrid_contigs.fasta
 ```
 
-### 3. Metagenomic & Plasmid Assembly
+### 4. Metagenomic & Plasmid Assembly
 ```bash
-./target/release/intelligent-pascal assemble \
+./target/release/spades-rs assemble \
     -i metagenome_1.fq.gz metagenome_2.fq.gz \
     --meta \
     --plasmid \
@@ -136,17 +151,17 @@ Outputs:
 ```
 Extracts circular and high-copy elements into `plasmids.fasta` while retaining low-abundance species.
 
-### 4. Transcriptome Mode (RNA-Seq)
+### 5. Transcriptome Mode (RNA-Seq)
 ```bash
-./target/release/intelligent-pascal assemble \
+./target/release/spades-rs assemble \
     -i rna_1.fq.gz rna_2.fq.gz \
     --rna \
     -o transcripts.fasta
 ```
 
-### 5. Multi-K Progressive Iterative Stepping
+### 6. Multi-K Progressive Iterative Stepping
 ```bash
-./target/release/intelligent-pascal assemble \
+./target/release/spades-rs assemble \
     -i reads_1.fq.gz reads_2.fq.gz \
     --multik 21,33,55 \
     -o contigs.fasta
@@ -154,41 +169,22 @@ Extracts circular and high-copy elements into `plasmids.fasta` while retaining l
 
 ---
 
+## 🔬 Benchmark Verification & Technical Report
+
+All 11 sequential ground-truth benchmarks against published biological references are documented in detail with QUAST scorecards in:
+* **[`TECHNICAL_REPORT_AND_ROADMAP.md`](TECHNICAL_REPORT_AND_ROADMAP.md)**
+
+---
+
 ## 🧪 Automated Testing
 
-Run the full test suite (unit tests + end-to-end reference genome verification):
+Run the full test suite (39 unit tests, stress tests, and end-to-end reference genome verifications):
 ```bash
 cargo test
 ```
-Outputs:
+All 39 tests pass with 0 failures:
 ```text
-$ cargo test
-running 6 tests
-test dna::tests::test_kmer256_roundtrip_and_revcomp ... ok
-test bloom::tests::test_two_tier_filter ... ok
-test dna::tests::test_revcomp_kmer ... ok
-test packed_reads::tests::test_packed_reads_roundtrip ... ok
-test dna::tests::test_encode_decode_roundtrip ... ok
-test dna::tests::test_kmer256_extend_and_prepend ... ok
-
-running 7 tests
-test test_meta_filter ... ok
-test test_rna_engine ... ok
-test test_single_cell_normalizer ... ok
-test test_scaffolder_basic ... ok
-test test_plasmid_detector ... ok
-test test_spaligner_hybrid ... ok
-test test_polisher ... ok
-
-running 1 test
-test test_phix174_wgs_public_assembly ... ok
-
-running 3 tests
-test test_dna_primitives ... ok
-test test_hamming_distance ... ok
-test test_assembly_accuracy_100_percent ... ok
-
-test result: ok. 17 passed; 0 failed; finished in 0.66s
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.80s
 ```
 
 ---
