@@ -1,4 +1,4 @@
-# Technical Benchmark Audit & Roadmap: Intelligent-Pascal
+# Technical Benchmark Audit & Roadmap: spades-rs
 
 > **Executive Summary for SPAdes Specialists & Bioinformaticians**  
 > `spades-rs` is an ultra-fast, low-memory *de novo* genome assembler written in pure Rust (4,591 source lines, zero external dynamic runtime dependencies). It re-engineers the algorithmic principles of the SPAdes assembly pipeline (multi-$k$ de Bruijn graphs, BayesHammer-style error correction, ExSPAnder paired-end repeat navigation, and Spaligner hybrid repeat resolution) onto modern SIMD hardware, 2-bit packed read streams, and bidirected port-involution graph theory.
@@ -473,7 +473,7 @@ $$\text{Max Memory Budget} = \text{MemAvailable} \times 0.80 = \text{MemAvailabl
 ### Runtime CLI Output
 ```
 ===========================================================
-   INTELLIGENT PASCAL: ULTRA-FAST DE NOVO GENOME ASSEMBLER 
+      SPADES-RS: ULTRA-FAST DE NOVO GENOME ASSEMBLER       
 ===========================================================
   Hardware Concurrency: 22 threads active
   Memory Governor:      11.75 GB budget (Auto: 80% of available RAM, 20% reserved for OS) [System: 14.69 GB avail / 15.34 GB total]
@@ -482,8 +482,35 @@ $$\text{Max Memory Budget} = \text{MemAvailable} \times 0.80 = \text{MemAvailabl
   Min Contig Length: 200 bp
 ```
 
+---
 
+## 5. References & Academic Citations
 
+The mathematical foundations, graph simplification heuristics, repeat resolution algorithms, and pipeline designs in `spades-rs` derive from the seminal literature published by the SPAdes research group:
 
+1. **SPAdes (Core Algorithm & de Bruijn Graph Construction)**:  
+   Bankevich, A., Nurk, S., Antipov, D., Gurevich, A. A., Dvorkin, M., Kulikov, A. S., Lesin, V. M., Nikolenko, S. I., Pham, S., Prjibelski, A. D., Pyshkin, A. V., Sirotkin, A. V., Vyahhi, N., Tesler, G., Alekseyev, M. A., & Pevzner, P. A. (2012). SPAdes: A new genome assembly algorithm and its applications to single-cell sequencing. *Journal of Computational Biology*, 19(5), 455–477. [doi:10.1089/cmb.2012.0021](https://doi.org/10.1089/cmb.2012.0021)
 
+2. **SPAdes User Guide & Operational Protocol**:  
+   Prjibelski, A., Antipov, D., Meleshko, D., Lapidus, A., & Korobeynikov, A. (2020). Using SPAdes De Novo Assembler. *Current Protocols in Bioinformatics*, 70(1), e102. [doi:10.1002/cpbi.102](https://doi.org/10.1002/cpbi.102)
 
+3. **BayesHammer (Bayesian Error Correction)**:  
+   Nikolenko, S. I., Korobeynikov, A. I., & Alekseyev, M. A. (2013). BayesHammer: Bayesian clustering for error correction in single-cell sequencing. *BMC Genomics*, 14(Suppl 1), S7. [doi:10.1186/1471-2164-14-S1-S7](https://doi.org/10.1186/1471-2164-14-S1-S7)
+
+4. **ExSPAnder (Paired-End Repeat Resolver)**:  
+   Prjibelski, A. D., Vasilinetc, I., Bankevich, A., Gurevich, A., Krivosheev, T., Nurk, S., Pham, S., & Pevzner, P. A. (2014). ExSPAnder: a universal repeat resolver for DNA fragment assembly. *Bioinformatics*, 30(12), i293–i301. [doi:10.1093/bioinformatics/btu266](https://doi.org/10.1093/bioinformatics/btu266)
+
+5. **metaSPAdes (Metagenomic De Novo Assembler)**:  
+   Nurk, S., Meleshko, D., Korobeynikov, A., & Pevzner, P. A. (2017). metaSPAdes: a new versatile metagenomic assembler. *Genome Research*, 27(5), 824–834. [doi:10.1101/gr.213959.116](https://doi.org/10.1101/gr.213959.116)
+
+6. **plasmidSPAdes (Plasmid Extraction from WGS)**:  
+   Antipov, D., Hartwick, N., Shen, M., & Pevzner, P. A. (2016). plasmidSPAdes: assembling plasmids from whole genome sequencing data. *Bioinformatics*, 32(22), 3380–3387. [doi:10.1093/bioinformatics/btw493](https://doi.org/10.1093/bioinformatics/btw493)
+
+7. **rnaSPAdes (Transcriptome De Novo Assembly)**:  
+   Bushmanova, E., Antipov, D., Lapidus, A., & Prjibelski, A. D. (2019). rnaSPAdes: a de novo transcriptome assembler and its application to RNA-Seq data. *GigaScience*, 8(9), giz100. [doi:10.1093/gigascience/giz100](https://doi.org/10.1093/gigascience/giz100)
+
+8. **hybridSPAdes (Short and Long Read Hybrid Assembly)**:  
+   Antipov, D., Korobeynikov, A., McLean, J. S., & Pevzner, P. A. (2016). hybridSPAdes: an algorithm for hybrid assembly of short and long reads. *Bioinformatics*, 32(7), 1009–1015. [doi:10.1093/bioinformatics/btv688](https://doi.org/10.1093/bioinformatics/btv688)
+
+9. **Spaligner (Long-Read Alignment to Assembly Graphs)**:  
+   Dvorkina, T., Antipov, D., & Korobeynikov, A. (2020). Spaligner: alignment of long reads to assembly graphs. *Bioinformatics*, 36(Suppl 1), i188–i195. [doi:10.1093/bioinformatics/btaa444](https://doi.org/10.1093/bioinformatics/btaa444)

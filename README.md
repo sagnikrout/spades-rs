@@ -189,5 +189,73 @@ test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 
 ---
 
+## 📚 Academic Citations & Attribution
+
+`spades-rs` is a high-performance Rust reimplementation and optimization of the algorithmic foundations pioneered by the SPAdes development team (Algorithmic Biology Lab, St. Petersburg Academic University / Center for Algorithmic Biotechnology).
+
+If you use `spades-rs` in your academic, clinical, or industrial research, please cite both this software and the seminal papers describing the underlying algorithms:
+
+### Primary SPAdes Algorithms
+* **SPAdes Core Assembler:**  
+  Bankevich, A., Nurk, S., Antipov, D., Gurevich, A. A., Dvorkin, M., Kulikov, A. S., Lesin, V. M., Nikolenko, S. I., Pham, S., Prjibelski, A. D., Pyshkin, A. V., Sirotkin, A. V., Vyahhi, N., Tesler, G., Alekseyev, M. A., & Pevzner, P. A. (2012). **SPAdes: A new genome assembly algorithm and its applications to single-cell sequencing.** *Journal of Computational Biology*, 19(5), 455–477. [doi:10.1089/cmb.2012.0021](https://doi.org/10.1089/cmb.2012.0021).
+
+* **Comprehensive SPAdes Ecosystem:**  
+  Prjibelski, A., Antipov, D., Meleshko, D., Lapidus, A., & Korobeynikov, A. (2020). **Using SPAdes De Novo Assembler.** *Current Protocols in Bioinformatics*, 70(1), e102. [doi:10.1002/cpbi.102](https://doi.org/10.1002/cpbi.102).
+
+### Specialized Algorithmic Pipelines
+* **BayesHammer Error Correction (`--error-correct`):**  
+  Nikolenko, S. I., Korobeynikov, A. I., & Alekseyev, M. A. (2013). **BayesHammer: Bayesian clustering for error correction in single-cell sequencing.** *BMC Genomics*, 14(Suppl 1), S7. [doi:10.1186/1471-2164-14-S1-S7](https://doi.org/10.1186/1471-2164-14-S1-S7).
+
+* **ExSPAnder Repeat Resolution (`src/expander.rs`):**  
+  Prjibelski, A. D., Vasilinetc, I., Bankevich, A., Gurevich, A., Krivosheev, T., Nurk, S., Pham, S., & Pevzner, P. A. (2014). **ExSPAnder: a universal repeat resolver for DNA fragment assembly.** *Bioinformatics*, 30(12), i293–i301. [doi:10.1093/bioinformatics/btu266](https://doi.org/10.1093/bioinformatics/btu266).
+
+* **metaSPAdes Metagenomics Pipeline (`--meta`):**  
+  Nurk, S., Meleshko, D., Korobeynikov, A., & Pevzner, P. A. (2017). **metaSPAdes: a new versatile metagenomic assembler.** *Genome Research*, 27(5), 824–834. [doi:10.1101/gr.213959.116](https://doi.org/10.1101/gr.213959.116).
+
+* **plasmidSPAdes Plasmid Extraction (`--plasmid`):**  
+  Antipov, D., Hartwick, N., Shen, M., & Pevzner, P. A. (2016). **plasmidSPAdes: assembling plasmids from whole genome sequencing data.** *Bioinformatics*, 32(22), 3380–3387. [doi:10.1093/bioinformatics/btw493](https://doi.org/10.1093/bioinformatics/btw493).
+
+* **rnaSPAdes Transcriptome Assembly (`--rna`):**  
+  Bushmanova, E., Antipov, D., Lapidus, A., & Prjibelski, A. D. (2019). **rnaSPAdes: a de novo transcriptome assembler and its application to RNA-Seq data.** *GigaScience*, 8(9), giz100. [doi:10.1093/gigascience/giz100](https://doi.org/10.1093/gigascience/giz100).
+
+* **hybridSPAdes & Spaligner Long-Read Graph Alignment (`--nanopore`, `--pacbio`):**  
+  Antipov, D., Korobeynikov, A., McLean, J. S., & Pevzner, P. A. (2016). **hybridSPAdes: an algorithm for hybrid assembly of short and long reads.** *Bioinformatics*, 32(7), 1009–1015. [doi:10.1093/bioinformatics/btv688](https://doi.org/10.1093/bioinformatics/btv688).  
+  Dvorkina, T., Antipov, D., & Korobeynikov, A. (2020). **Spaligner: alignment of long reads to assembly graphs.** *Bioinformatics*, 36(Suppl 1), i188–i195. [doi:10.1093/bioinformatics/btaa444](https://doi.org/10.1093/bioinformatics/btaa444).
+
+### BibTeX Entries
+```bibtex
+@article{bankevich2012spades,
+  author    = {Bankevich, Anton and Nurk, Sergey and Antipov, Dmitry and Gurevich, Alexey A. and Dvorkin, Mikhail and Kulikov, Alexander S. and Lesin, Valery M. and Nikolenko, Sergey I. and Pham, Son and Prjibelski, Andrey D. and Pyshkin, Alexey V. and Sirotkin, Alexander V. and Vyahhi, Nikolay and Tesler, Glenn and Alekseyev, Max A. and Pevzner, Pavel A.},
+  title     = {{SPAdes: A New Genome Assembly Algorithm and Its Applications to Single-Cell Sequencing}},
+  journal   = {Journal of Computational Biology},
+  volume    = {19},
+  number    = {5},
+  pages     = {455--477},
+  year      = {2012},
+  doi       = {10.1089/cmb.2012.0021}
+}
+
+@article{prjibelski2020using,
+  author    = {Prjibelski, Andrey and Antipov, Dmitry and Meleshko, Dmitry and Lapidus, Alla and Korobeynikov, Anton},
+  title     = {{Using SPAdes De Novo Assembler}},
+  journal   = {Current Protocols in Bioinformatics},
+  volume    = {70},
+  number    = {1},
+  pages     = {e102},
+  year      = {2020},
+  doi       = {10.1002/cpbi.102}
+}
+
+@software{spades_rs2026,
+  author    = {Rout, Sagnik},
+  title     = {{spades-rs: Ultra-Fast, Memory-Shielded De Novo Genome Assembler in Pure Rust}},
+  url       = {https://github.com/sagnikrout/spades-rs},
+  version   = {1.0.0},
+  year      = {2026}
+}
+```
+
+---
+
 ## 📄 License
 MIT License. Free for academic, non-commercial, and commercial genomics workflows.

@@ -7,7 +7,8 @@ use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(name = "spades-rs")]
-#[command(about = "Ultra-Fast, Low-Memory De Novo Genome Assembler in Pure Rust", long_about = None)]
+#[command(about = "Ultra-Fast, Low-Memory De Novo Genome Assembler in Pure Rust")]
+#[command(after_help = "Citations:\n  SPAdes: Bankevich et al. (2012) J Comput Biol 19(5):455-477\n  Protocol: Prjibelski et al. (2020) Curr Protoc Bioinformatics 70(1):e102\n  See README.md for full citations & BibTeX entries.")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
