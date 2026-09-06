@@ -7,7 +7,7 @@ use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(name = "spades-rs")]
-#[command(about = "Ultra-Fast, Low-Memory De Novo Genome Assembler in Pure Rust")]
+#[command(about = "A Rust-based de novo genome assembler designed for low-memory environments")]
 #[command(after_help = "Citations:\n  SPAdes: Bankevich et al. (2012) J Comput Biol 19(5):455-477\n  Protocol: Prjibelski et al. (2020) Curr Protoc Bioinformatics 70(1):e102\n  See README.md for full citations & BibTeX entries.")]
 struct Cli {
     #[command(subcommand)]
@@ -148,7 +148,7 @@ fn main() -> anyhow::Result<()> {
             };
 
             println!("===========================================================");
-            println!("      SPADES-RS: ULTRA-FAST DE NOVO GENOME ASSEMBLER       ");
+            println!("            SPADES-RS: DE NOVO GENOME ASSEMBLER            ");
             println!("===========================================================");
             println!(
                 "  Hardware Concurrency: {} threads active",

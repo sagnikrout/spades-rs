@@ -1,23 +1,25 @@
 # spades-rs
 
-Fast, memory-bounded de novo genome assembler in pure Rust.
+A Rust-based de novo genome assembler designed for low-memory environments.
 
 [![Rust CI](https://github.com/sagnikrout/spades-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/sagnikrout/spades-rs/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release: v1.0.0](https://img.shields.io/badge/Release-v1.0.0-teal.svg)](https://github.com/sagnikrout/spades-rs/releases)
 
-`spades-rs` is a standalone, single-binary implementation of the algorithmic principles behind classical *de novo* genome assemblers (such as SPAdes). Built from the ground up in 100% safe, modern Rust for 64-bit multi-core architectures, it eliminates the disk spills, massive hash-table overhead, and out-of-memory crashes characteristic of legacy assemblers.
+`spades-rs` is an experimental *de novo* genome assembler written in Rust. It implements core algorithmic concepts from the SPAdes assembly pipeline (Bankevich et al., 2012), with a focus on reduced memory consumption and single-binary deployment on commodity 64-bit hardware.
 
-* **Low memory footprint**: Operates within 1.5 GB to 3.5 GB for typical bacterial and fungal genomes through lock-free Two-Tier Bloom filters and 2-bit packed read streaming.
-* **Automatic memory governor**: Detects available physical system RAM and bounds the operational envelope to 80% (reserving 20% for OS page cache and background processes).
-* **High-throughput execution**: Assembles bacterial isolates in approximately 4 minutes and viral controls in under 1 second.
-* **Multi-omics assembly modes**: Isolates, metagenomes (`--meta`), plasmids (`--plasmid`), RNA transcriptomes (`--rna`), single-cell MDA (`--sc`), hybrid long-read repeat bridging (`--nanopore`, `--pacbio`), and progressive multi-K iterations (`--multik`).
+* **Bounded memory footprint**: Uses lock-free Two-Tier Bloom filters and 2-bit packed reads to operate within limited RAM environments.
+* **Automatic memory budgeting**: Inspects available physical memory at launch and defaults to an 80% budget ceiling, leaving 20% headroom for operating system processes and file cache.
+* **Single binary**: Compiles into an independent executable with no external dynamic library dependencies.
+* **Pipeline modes**: Supports short-read isolate assembly, progressive multi-K stepping, long-read hybrid bridging (`--nanopore`, `--pacbio`), and preliminary support for metagenomic (`--meta`), plasmid (`--plasmid`), RNA-Seq (`--rna`), and single-cell (`--sc`) datasets.
+
+> Note: `spades-rs` is actively evolving software. While it reproduces key SPAdes heuristics, legacy SPAdes remains the mature reference standard for production genomics pipelines.
 
 ## Quickstart
 
 ### Precompiled binaries
 
-Standalone single-file binaries are built and published for each release:
+Precompiled standalone binaries for 64-bit platforms are available from GitHub releases:
 
 | Platform | Target triple | Download link |
 | :--- | :--- | :--- |
@@ -27,7 +29,7 @@ Standalone single-file binaries are built and published for each release:
 | Windows x86_64 | `x86_64-pc-windows-msvc` | [`spades-rs-windows-x86_64.exe`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-windows-x86_64.exe) |
 
 ```bash
-# Example: Download and run on Linux
+# Download and execute on 64-bit Linux
 curl -L -o spades-rs https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-musl
 chmod +x spades-rs
 ./spades-rs assemble -i reads_1.fq.gz reads_2.fq.gz -o contigs.fasta
@@ -35,18 +37,18 @@ chmod +x spades-rs
 
 ### Build from source
 
-Requires Rust 1.75 or newer on a 64-bit architecture:
+Building from source requires Rust 1.75 or later on a 64-bit operating system:
 
 ```bash
 git clone https://github.com/sagnikrout/spades-rs.git
 cd spades-rs
 cargo build --release
 ```
-The compiled binary will be placed at `target/release/spades-rs`.
+The resulting executable is located at `target/release/spades-rs`.
 
 ## Codebase and file structure
 
-The engine is organized into 16 self-contained modules in `src/`, automated tests in `tests/`, and biological audit scripts in `tools/`:
+The codebase is partitioned into 16 modules in `src/`, automated tests in `tests/`, and verification scripts in `tools/`:
 
 | Path | Primary responsibility | Key algorithms and mechanisms |
 | :--- | :--- | :--- |
@@ -74,7 +76,7 @@ The engine is organized into 16 self-contained modules in `src/`, automated test
 | [`tests/`](tests/) | Integration test suite | 39 automated tests covering unitigs, graph simplification, and full genomes |
 | [`tools/`](tools/) | Biological audit scripts | Reference-based QUAST evaluation, AMR gene checks, and rRNA synteny audits |
 
-## Architecture and assembly pipeline
+## Assembly pipeline
 
 ```
 [ Raw Gzipped Reads (.fq.gz) ]
@@ -120,31 +122,35 @@ The engine is organized into 16 self-contained modules in `src/`, automated test
 └───────────────────────────────────────────────────────────────┘
 ```
 
-## Performance benchmarks
+## Performance comparisons
 
-### 1. Bacterial isolate benchmark (Escherichia coli MG1655, 100x depth, 1.28M paired reads, Multi-K 33,55,77,99,111)
-Measured on an Intel Core Ultra 9 185H (22 logical threads, AVX2, 32 GB RAM) against NCBI Reference `NC_000913.3` (4.64 Mb):
+These tests were performed on an Intel Core Ultra 9 185H (22 logical threads, AVX2, 32 GB RAM) running Ubuntu under WSL2.
 
-| Metric | Legacy SPAdes v4.3.0 | spades-rs (Rust) | Difference |
+### 1. Bacterial isolate (Escherichia coli MG1655, 100x depth, 1.28M paired reads, Multi-K 33,55,77,99,111)
+Evaluated against NCBI Reference `NC_000913.3` (4.64 Mb):
+
+| Metric | SPAdes v4.3.0 | spades-rs (v1.0.0) | Observation |
 | :--- | :--- | :--- | :--- |
-| Elapsed Wall-Clock | 834.93 s (13m 55s) | 259.86 s (4m 20s) | 3.21x faster |
-| User CPU Time | 5,567.95 s (92m 48s) | 2,275.41 s (37m 55s) | 2.45x less CPU compute |
-| Peak RAM (Max RSS) | 5,560.73 MB (5.56 GB) | 2,157.60 MB (2.16 GB) | 2.58x less memory |
-| Contigs (≥ 200 bp) | 700 contigs | 244 contigs | 2.87x fewer fragments |
-| Genome Fraction | 99.19% | 98.82% | Equivalent representation |
+| Wall-Clock Time | 834.93 s (13m 55s) | 259.86 s (4m 20s) | Shorter runtime |
+| User CPU Time | 5,567.95 s (92m 48s) | 2,275.41 s (37m 55s) | Reduced CPU time |
+| Peak RAM (Max RSS) | 5,560.73 MB (5.56 GB) | 2,157.60 MB (2.16 GB) | Lower peak memory |
+| Contigs (≥ 200 bp) | 700 contigs | 244 contigs | Fewer small fragments |
+| Genome Fraction | 99.19% | 98.82% | Comparable recovery |
 
-### 2. Hybrid assembly with long reads (Escherichia coli MG1655 + Oxford Nanopore DRR242214)
+### 2. Hybrid assembly (Escherichia coli MG1655 paired-end + Oxford Nanopore DRR242214)
 
-| Metric | Legacy SPAdes v4.3.0 | spades-rs (Rust) | Difference |
+| Metric | SPAdes v4.3.0 | spades-rs (v1.0.0) | Observation |
 | :--- | :--- | :--- | :--- |
-| Elapsed Wall-Clock | 961.68 s (16m 01s) | 256.63 s (4m 17s) | 3.75x faster |
-| Peak RAM (Max RSS) | 5,278.59 MB (5.28 GB) | 2,115.82 MB (2.12 GB) | 2.50x less memory |
-| Scaffold N50 / L50 | Not produced | 212,344 bp / 7 | High structural contiguity |
-| Longest Scaffold | 469,088 bp | 811,852 bp | +342.7 kb longer scaffold |
-| Unaligned Contigs | 468 contigs (374.5 kb) | 8 contigs (131.2 kb) | 58.5x fewer spurious contigs |
-| Base Accuracy | 9.15 mismatches / 100 kb | 6.15 (3.78 in scaffolds) | Higher base accuracy |
-| 7 rRNA Operons | Collapsed / fragmented | 7 / 7 (100% bridged) | All operons bridged |
-| Executable Size | ~640 MB across 15+ binaries | 1.1 MB single native binary | Standalone binary |
+| Wall-Clock Time | 961.68 s (16m 01s) | 256.63 s (4m 17s) | Shorter runtime |
+| Peak RAM (Max RSS) | 5,278.59 MB (5.28 GB) | 2,115.82 MB (2.12 GB) | Lower peak memory |
+| Scaffold N50 / L50 | Not produced | 212,344 bp / 7 | Produced scaffold output |
+| Longest Scaffold | 469,088 bp | 811,852 bp | Longer primary scaffold |
+| Unaligned Contigs | 468 contigs (374.5 kb) | 8 contigs (131.2 kb) | Fewer unaligned contigs |
+| Base Error Rate | 9.15 mismatches / 100 kb | 6.15 mismatches / 100 kb | Lower mismatch rate |
+| 7 rRNA Operons | Fragmented | 7 / 7 bridged | Bridged repeat copies |
+| Installation Size | Multiple binaries (~640 MB) | Single binary (1.1 MB) | Self-contained binary |
+
+*Note: Assembly results, runtime, and memory consumption vary with dataset characteristics, sequencing depth, error profiles, and hardware. Users should evaluate results against their own quality criteria.*
 
 ## Command-line options
 
@@ -183,11 +189,11 @@ spades-rs assemble \
 ```
 Outputs produced:
 * `contigs.fasta`: Primary assembled genomic contigs.
-* `scaffolds.fasta`: Scaffolds linked across unresolved repeat gaps.
-* `assembly_graph.gfa`: Standard Graphical Fragment Assembly v1.1 (viewable in Bandage).
+* `scaffolds.fasta`: Scaffolds linked across repeat gaps.
+* `assembly_graph.gfa`: Graphical Fragment Assembly v1.1 format (compatible with Bandage).
 
-### 2. Memory-constrained execution
-By default, `spades-rs` uses 80% of available RAM. You can enforce a custom limit:
+### 2. Specifying a memory ceiling
+By default, `spades-rs` uses up to 80% of detected available RAM. A specific limit can be set manually:
 ```bash
 spades-rs assemble \
     -i reads_1.fq.gz reads_2.fq.gz \
@@ -195,7 +201,7 @@ spades-rs assemble \
     -o contigs.fasta
 ```
 
-### 3. Hybrid assembly with long reads
+### 3. Hybrid assembly with Oxford Nanopore or PacBio
 ```bash
 spades-rs assemble \
     -i short_reads_1.fq.gz short_reads_2.fq.gz \
@@ -230,16 +236,16 @@ spades-rs assemble \
 
 ## Technical report and verification
 
-All 11 sequential ground-truth benchmarks against published biological references are documented with QUAST scorecards in:
+Additional evaluation details, including per-species metrics and biological feature recovery across 11 test sets, are documented in:
 * [`TECHNICAL_REPORT_AND_ROADMAP.md`](TECHNICAL_REPORT_AND_ROADMAP.md)
 
 ## Automated testing
 
-Run the full test suite (39 unit tests, stress tests, and end-to-end reference genome verifications):
+The test suite includes 39 unit and integration tests:
 ```bash
 cargo test
 ```
-All 39 tests pass with zero failures:
+All tests pass:
 ```text
 test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.80s
 ```
@@ -303,7 +309,7 @@ When using `spades-rs`, please cite both this repository and the original litera
 
 @software{spades_rs2026,
   author    = {Rout, Sagnik},
-  title     = {{spades-rs: Fast, Memory-Bounded De Novo Genome Assembler in Pure Rust}},
+  title     = {{spades-rs: A Rust-based de novo genome assembler designed for low-memory environments}},
   url       = {https://github.com/sagnikrout/spades-rs},
   version   = {1.0.0},
   year      = {2026}

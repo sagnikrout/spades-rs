@@ -1,6 +1,6 @@
-# Technical Benchmark Audit & Roadmap: spades-rs
+# Benchmark Evaluation: spades-rs
 
-> **Executive Summary for SPAdes Specialists & Bioinformaticians**  
+> **Summary**  
 > `spades-rs` is an ultra-fast, low-memory *de novo* genome assembler written in pure Rust (4,591 source lines, zero external dynamic runtime dependencies). It re-engineers the algorithmic principles of the SPAdes assembly pipeline (multi-k de Bruijn graphs, BayesHammer-style error correction, ExSPAnder paired-end repeat navigation, and Spaligner hybrid repeat resolution) onto modern SIMD hardware, 2-bit packed read streams, and bidirected port-involution graph theory.
 >
 > On benchmarks ranging from synthetic controls to 16-chromosome eukaryotic genomes, it achieves **equal or superior biological fidelity** to published reference ground truths while cutting memory footprints by **4x  to  7x** and running **3x  to  5x faster** than SPAdes.
@@ -28,13 +28,13 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 
 ## 2. Completed Milestones & Benchmark Results
 
-### Milestone 0.1: Synthetic Control — *Bacteriophage PhiX174*
+### Evaluation 1: Control genome — *Bacteriophage PhiX174*
 * **Genome**: 5,386 bp circular ssDNA control.
 * **Result**: **100.0% genome recovery**, 0 misassemblies, assembled into a single closed circular contig in **0.59 seconds**.
 
 ---
 
-### Milestone 0.2: Bacterial Gold Standard — *Escherichia coli* K-12 MG1655
+### Evaluation 2: Bacterial isolate — *Escherichia coli* K-12 MG1655
 * **Genome Specs**: 4,641,652 bp, 50.8% GC, **7 identical ribosomal RNA operons (rrnA through rrnH)** measuring 5.0–5.5 kb each.
 * **Sequencing Data**: 1,500,000 Illumina HiSeq paired reads (2x 150 bp, ~ 50x depth, SRA `SRR5463422`).
 * **Ground Truth**: NCBI RefSeq `NC_000913.3`.
@@ -44,71 +44,71 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 | **Genome Fraction (%)** | 98.42% | **98.81%** | **+0.39% (+18 kb true sequence)** |
 | **Largest Contig** | 285,410 bp | **312,850 bp** | **+27.4 kb longer** |
 | **N50 Contig Size** | 104,220 bp | **126,890 bp** | **+21.7% contiguity** |
-| **Extensive Misassemblies** | 1 | **1** | Equal (100% syntenically preserved) |
-| **Duplication Ratio** | 1.002 | **0.999** | Zero artificial copy bloating |
-| **rRNA Operon Synteny** | 7 / 7 resolved | **7 / 7 resolved** | ExSPAnder bridged all 7 operons |
+| **Extensive Misassemblies** | 1 | **1** | 1 misassembly in both |
+| **Duplication Ratio** | 1.002 | **0.999** | Duplication ratio 0.999 |
+| **rRNA Operon Synteny** | 7 / 7 resolved | **7 / 7 resolved** | 7 / 7 rRNA operons bridged |
 | **Peak Memory (RAM)** | 9,650 MB (9.65 GB) | **1,420 MB (1.42 GB)** | **6.8x lower RAM footprint** |
 | **Execution Time** | 6m  45s | **2m  14s** | **3.0x faster wall-clock** |
 
 ---
 
-### Milestone 0.3: Eukaryotic Complexity — *Saccharomyces cerevisiae* S288C
+### Evaluation 3: Eukaryotic genome — *Saccharomyces cerevisiae* S288C
 * **Genome Specs**: 12,157,105 bp across **16 linear nuclear chromosomes** + mitochondrion, **16 point centromeres (*CEN1*–*CEN16*)**, and the **1.4 Mb tandem *RDN1* rDNA repeat array** on Chromosome XII.
 * **Sequencing Data**:
   * **Short Reads**: 8,000,000 Illumina paired-end reads (66x depth, SRA `SRR2070491`).
   * **Long Reads**: 50,000 Oxford Nanopore MinION reads (3.5x depth, ENA `DRR170483`).
 * **Ground Truth**: NCBI RefSeq `GCF_000146045.2` / SGD `R64-1-1`.
 
-| Metric | Verified Biological Truth | `spades-rs` Result | Biological Meaning |
+| Metric | Verified Biological Truth | `spades-rs` Result | Observations |
 | :--- | :--- | :--- | :--- |
-| **Aligned Sequence** | 12,157,105 bp | **10,779,870 bp** | Captured virtually all accessible sequence |
-| **Genome Fraction (%)** | 100% | **88.34%** | **At theoretical limit** (~ 88.5% non-tandem genome) |
-| **Extensive Misassemblies** | 0 (True biology) | **4** (26 kb total) | **99.76% structurally pristine** across 16 chromosomes |
-| **Duplication Ratio** | 1.000 | **1.004** | Zero artificial duplication bloat |
+| **Aligned Sequence** | 12,157,105 bp | **10,779,870 bp** | 10.78 Mb aligned |
+| **Genome Fraction (%)** | 100% | **88.34%** | **88.34% genome fraction (non-tandem genome)** (~ 88.5% non-tandem genome) |
+| **Extensive Misassemblies** | 0 (True biology) | **4** (26 kb total) | **4 misassemblies (26 kb total)** across 16 chromosomes |
+| **Duplication Ratio** | 1.000 | **1.004** | Duplication ratio 1.004 |
 | **GC Content (%)** | 38.15% | **38.04%** | Delta = 0.11% (faithful base composition) |
 | **Centromeric Synteny** | 16 point centromeres | **9 / 16 intact** in contigs | Flanks up to +6.7 kb; 7 end at Ty retrotransposons |
 | **Gene Completeness** | 6,459 curated genes | **5,038 genes >= 95%** | 78.0% core genes full length on short reads |
 | **Spaligner Mapping Speed**| Reference alignment | **0.08 seconds** | 50,000 ONT reads indexed and bridged in 80 ms |
-| **Peak Memory (RAM)** | Standard: 15–30 GB | **3,119 MB (3.11 GB)** | Fits easily on any standard laptop or dev machine |
+| **Peak Memory (RAM)** | Standard: 15–30 GB | **3,119 MB (3.11 GB)** | 3.12 GB peak RAM |
 | **Total Assembly Time** | Standard: 25–45 min | **6m  34s** | 8M reads assembled in under 7 minutes |
 
-### Milestone 1: High-GC & PE/PPE Multigene Family Test — *Mycobacterium tuberculosis* H37Rv
+### Evaluation 4: High GC isolate — *Mycobacterium tuberculosis* H37Rv
 * **Genome Specs**: 4,411,532 bp, circular chromosome, **65.61% GC**, 4,018 coding genes, ~ 170 repetitive *PE/PPE* multigene families.
 * **Sequencing Data**: 2,000,000 Illumina HiSeq paired reads (1.0M pairs, 2x 150 bp, 68x depth, SRA `SRR12416844` / CS2106 clinical MDR isolate).
 * **Ground Truth**: NCBI RefSeq `NC_000962.3` / `GCF_000195955.2`.
 
-| Metric | Reference Ground Truth | `spades-rs` Contigs | Biological & Clinical Significance |
+| Metric | Reference Ground Truth | `spades-rs` Contigs | Observations |
 | :--- | :--- | :--- | :--- |
 | **Total Assembled Sequence** | 4,411,532 bp | **4,315,054 bp** | Captured the complete non-deleted genome |
 | **Genome Fraction (%)** | 100% | **96.96%** (97.03% scaffolds) | Reconstructed clinical isolate chromosome |
 | **N50 Contig Size** | Reference | **64,164 bp** | High contiguity despite 65.6% GC bias |
 | **NA50 Contig Size** | Reference-split | **63,683 bp** | Delta = 481 bp from raw N50 (near-zero fragmentation) |
 | **Largest Contig** | 4.41 Mb | **230,498 bp** (575 kb scaffold) | Long contiguous chromosomal tracts |
-| **Extensive Translocations** | 0 (True biology) | **0** | **Zero inter-chromosomal / chimeric translocations** |
-| **Extensive Inversions** | 0 (True biology) | **0** | **Zero structural inversions** |
+| **Extensive Translocations** | 0 (True biology) | **0** | **0 translocations detected** |
+| **Extensive Inversions** | 0 (True biology) | **0** | **0 inversions detected** |
 | **Base Accuracy (Mismatches)** | 0.00 | **36.68 per  100 kb** | **> 99.96% base consensus accuracy** |
 | **Indel Rate** | 0.00 | **6.12 per  100 kb** | High single-base fidelity |
-| **Duplication Ratio** | 1.000 | **1.001** | Zero artificial duplication bloat |
+| **Duplication Ratio** | 1.000 | **1.001** | Duplication ratio 1.004 |
 | **Clinical AMR Loci** | 10 key resistance genes | **9 / 9 sequenced loci 100% intact** | *rpoB*, *inhA*, *gyrA*, *gyrB*, *pncA*, *embB*, *folC*, *gidB*, *rpsL* intact; true clinical deletion of *katG* confirmed |
 | **PE/PPE Multigene Family** | 155 annotated repeats | **121 / 155 (78.1%) intact** | 119 / 155 (76.8%) >= 99% full length |
 | **Wall-Clock Runtime** | Standard: 15–25 min | **2m  14s** | 4 Multi-K iterations (k=21,33,55,77) in 134s |
-| **Peak RAM (RSS)** | Standard: 8–16 GB | **1,138 MB (1.13 GB)** | Ultra-low memory consumption |
+| **Peak RAM (RSS)** | Standard: 8–16 GB | **1,138 MB (1.13 GB)** | 1.14 GB peak RAM |
 
-### Milestone 2: Extreme High-GC & Secondary Structures — *Pseudomonas aeruginosa* PAO1
+### Evaluation 5: High GC isolate — *Pseudomonas aeruginosa* PAO1
 * **Genome Specs**: 6,264,404 bp, circular chromosome, **66.56% GC** (peaks over 82%), 5,697 coding genes, 4 ribosomal RNA operons (*rrnA*–*rrnD*), pyoverdine siderophore cluster, alginate operon, and multidrug efflux pumps.
 * **Sequencing Data**: 5,831,268 Illumina HiSeq 2500 paired reads (2.91M pairs, 2x 150 bp, 70x depth, DDBJ/SRA `DRR051363`).
 * **Ground Truth**: NCBI RefSeq `NC_002516.2` / `GCF_000006765.1`.
 
-| Metric | Reference Ground Truth | `spades-rs` Result | Biological & Clinical Significance |
+| Metric | Reference Ground Truth | `spades-rs` Result | Observations |
 | :--- | :--- | :--- | :--- |
 | **Total Assembled Sequence** | 6,264,404 bp | **6,348,840 bp** (6,234,265 bp contigs) | Captured > 99.5% of the complete PAO1 genome |
 | **Genome Fraction (%)** | 100% | **97.77%** (97.26% contigs) | Reconstructed virtually all non-repetitive sequence |
-| **GC Content (%)** | 66.56% | **66.47%** | Delta = 0.09% (near-perfect fidelity across high-GC hairpins) |
+| **GC Content (%)** | 66.56% | **66.47%** | Delta = 0.09% (Delta = 0.09% across high-GC hairpins) |
 | **Scaffold N50** | Reference | **45,430 bp** (L50 = 42 scaffolds) | Exceptional long-range contiguity across secondary structures |
 | **Contig N50 / NA50** | Reference | **6,166 bp / 6,130 bp** | Delta = 36 bp (near-zero fragmentation by misassemblies) |
 | **Largest Scaffold** | 6.26 Mb | **175,073 bp** (28,568 bp contig) | Broad chromosome coverage |
-| **Extensive Misassemblies** | 0 | **1** (4.7 kb) | **Only 1 extensive misassembly** across the entire 6.26 Mb chromosome! |
-| **Local Misassemblies** | 0 | **0** | **Zero local structural misassemblies** |
+| **Extensive Misassemblies** | 0 | **1** (4.7 kb) | **Only 1 extensive misassembly** across the entire 6.26 Mb chromosome. |
+| **Local Misassemblies** | 0 | **0** | **0 local misassemblies** |
 | **Base Accuracy (Mismatches)** | 0.00 | **1.15 per  100 kb** | **> 99.9988% base consensus accuracy** |
 | **Indel Rate** | 0.00 | **0.52 per  100 kb** | Near-zero homopolymer/polymerase indel slippage |
 | **Duplication Ratio** | 1.000 | **1.012** | Highly compact, non-redundant de Bruijn graph |
@@ -117,26 +117,26 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 | **Quorum Sensing Masters** | 6 regulatory genes | **6 / 6 (100%) intact** | *lasR*, *lasI*, *rhlR*, *rhlI*, *pqsA*, *pqsR* completely reconstructed |
 | **Pyoverdine NRPS Cluster** | 7 siderophore enzymes | **4 / 7 intact, NRPS at 72–84%** | Giant NRPS multi-modular enzymes (*pvdD*, *pvdJ*, *pvdL*) resolved to 72–84% |
 | **Wall-Clock Runtime** | Standard: 20–40 min | **7m  36s** | Full multi-K (k=21,33,55,77) on 5.8M reads |
-| **Peak RAM (RSS)** | Standard: 12–24 GB | **3,486 MB (3.48 GB)** | Maintained under 3.5 GB ceiling on 5.8M 150bp reads |
+| **Peak RAM (RSS)** | Standard: 12–24 GB | **3,486 MB (3.48 GB)** | 3.49 GB peak RAM |
 
-### Milestone 3: The Hyper-AT & Homopolymer Trap — *Plasmodium falciparum* 3D7
+### Evaluation 6: AT-rich genome — *Plasmodium falciparum* 3D7
 * **Genome Specs**: 23,292,622 bp across **14 linear nuclear chromosomes**, **19.34% GC** (the most extreme AT-bias known in eukaryotes; introns and intergenic regions exceed 90–95% AT), apicoplast, and mitochondrion.
 * **Sequencing Data**: 6,183,162 Illumina NovaSeq 6000 paired reads (3.09M pairs, 2x 151 bp, \approx 40x depth, ENA `ERR11767125`).
 * **Ground Truth**: NCBI RefSeq / PlasmoDB `GCF_000002765.6` (`NC_004325.2`–`NC_037283.1`).
 
-| Metric | Reference Ground Truth | `spades-rs` Result | Biological & Clinical Significance |
+| Metric | Reference Ground Truth | `spades-rs` Result | Observations |
 | :--- | :--- | :--- | :--- |
 | **Total Assembled Sequence** | 23,292,622 bp | **21,336,607 bp** (20,999,524 bp contigs) | Reconstructed > 90% of the malaria genome |
 | **Total Aligned Sequence** | 23,292,622 bp | **20,026,379 bp** (18,690,898 bp contigs) | High coverage across all 14 chromosomes |
-| **Genome Fraction (%)** | 100% | **84.46%** (79.09% contigs) | Near-theoretical ceiling on short reads (>90% AT dropout) |
-| **GC Content (%)** | 19.34% | **19.46%** (contigs 19.65%) | **Delta = 0.12%** (near-perfect fidelity in extreme hyper-AT) |
+| **Genome Fraction (%)** | 100% | **84.46%** (79.09% contigs) | 84.46% genome fraction (AT dropout in intergenic regions) (>90% AT dropout) |
+| **GC Content (%)** | 19.34% | **19.46%** (contigs 19.65%) | **Delta = 0.12%** (Delta = 0.09% in extreme hyper-AT) |
 | **Scaffold N50** | Reference | **5,916 bp** (1,676 bp contig N50) | \approx 6x higher contiguity than typical short-read assemblies (< 1 kb) |
 | **Largest Scaffold** | 3.29 Mb (Chr 14) | **46,064 bp** (11,380 bp contig) | Broad chromosome blocks without chimera |
-| **Extensive Misassemblies** | 0 | **15** (25.4 kb contigs) | **99.86% structurally pristine** contigs across 14 chromosomes! |
+| **Extensive Misassemblies** | 0 | **15** (25.4 kb contigs) | **99.86% structurally pristine** contigs across 14 chromosomes. |
 | **Local Misassemblies** | 0 | **1** | Minimal local structural distortion |
 | **Base Accuracy (Mismatches)** | 0.00 | **5.00 per  100 kb** (7.49 contigs) | **> 99.995% base consensus accuracy** |
 | **Indel Rate** | 0.00 | **5.66 per  100 kb** | Handles extreme poly(dA:dT) homopolymer slippage |
-| **Duplication Ratio** | 1.000 | **1.015** (1.018 scaffolds) | Zero artificial copy bloat in repetitive malaria AT repeats |
+| **Duplication Ratio** | 1.000 | **1.015** (1.018 scaffolds) | Duplication ratio 1.015 in repetitive malaria AT repeats |
 | **Annotated Genomic Features** | 39,645 total features | **24,504 complete + 11,329 partial** | 90.4% of all curated malaria features represented |
 | **14-Chromosome Coverage** | 14 linear chromosomes | **All 14 chromosomes resolved (68.5% to 84.3%)** | Chr 1: 68.5%, Chr 5: 80.8%, Chr 11: 80.3%, Chr 13: 82.3%, Chr 14: 84.3% |
 | **ExSPAnder Repeat Resolving**| Extreme homopolymers | **20 complex repeat bifurcations resolved** | Paired-end linkages spanned 383 bp insert junctions |
@@ -146,7 +146,7 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 
 ---
 
-### Milestone 4: Massive Regional Centromeres & Giant Chromosomes — *Schizosaccharomyces pombe* 972h-
+### Evaluation 7: Fission yeast — *Schizosaccharomyces pombe* 972h-
 * **Genome Specs**: 12,591,251 bp across **3 giant nuclear chromosomes** (Chr I: 5.58 Mb, Chr II: 4.54 Mb, Chr III: 2.45 Mb) and Mitochondrion (19.4 kb).
 * **Biological Complexity**:
   * Unlike point centromeres (120 bp in *S. cerevisiae*), fission yeast contains **massive regional centromeres (35 to  110 kb)** composed of central cores (*cnt*) flanked by inverted innermost repeats (*imr*) and outer heterochromatic repeat blocks (*dg* and *dh* / *otr*).
@@ -157,17 +157,17 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 
 #### QUAST 5.2.0 Biological & Structural Benchmark Results
 
-| Metric | Reference Ground Truth | `spades-rs` (Contigs) | `spades-rs` (Scaffolds) | Biological Impact & Verification |
+| Metric | Reference Ground Truth | `spades-rs` (Contigs) | `spades-rs` (Scaffolds) | Observations |
 | :--- | :--- | :--- | :--- | :--- |
 | **Total Assembled Length** | 12,591,251 bp | **12,196,684 bp** | **12,242,500 bp** | **97.23% total sequence recovery** |
 | **Total Aligned Length** | 12,591,251 bp | **12,167,120 bp** | **12,188,480 bp** | Complete non-rDNA euchromatin capture |
 | **Genome Fraction (%)** | 100% | **96.47%** | **96.63%** | High eukaryotic short-read ceiling (non-rDNA) |
-| **GC Content (%)** | 36.05% | **36.10%** | **36.10%** | **Delta = 0.05%** (flawless GC balance) |
-| **N50 Contig / Scaffold Size** | Reference | **41,494 bp** | **163,989 bp** | Superb contiguity across megabase chromosomes |
-| **L50 (Number of Sequences)**| Reference | **88** | **19** | Half the eukaryotic genome in just 19 scaffolds! |
+| **GC Content (%)** | 36.05% | **36.10%** | **36.10%** | **Delta = 0.05%** (Delta = 0.05%) |
+| **N50 Contig / Scaffold Size** | Reference | **41,494 bp** | **163,989 bp** | Contig N50 41.5 kb, scaffold N50 164.0 kb |
+| **L50 (Number of Sequences)**| Reference | **88** | **19** | 19 scaffolds span L50 |
 | **Largest Alignment** | 5.58 Mb (Chr I) | **190,644 bp** | **190,644 bp** | Continuous unbranched syntenic blocks |
 | **Largest Scaffold** | 5.58 Mb (Chr I) | **190,645 bp** | **619,387 bp** | Scaffold spans > 600 kb continuous chromosome |
-| **Extensive Misassemblies** | 0 | **1** (11.3 kb) | **19** contig-level | **Only 1 misassembly in entire 12.6 Mb genome** (99.91% pristine) |
+| **Extensive Misassemblies** | 0 | **1** (11.3 kb) | **19** contig-level | **1 misassembly (11.3 kb)** (99.91% pristine) |
 | **Local Misassemblies** | 0 | **4** | **3** | Minimal local rearrangement |
 | **Base Accuracy (Mismatches)** | 0.00 | **9.71 per  100 kb** | **1.49 per  100 kb** | **> 99.998% base consensus accuracy** in scaffolds |
 | **Indel Rate** | 0.00 | **3.45 per  100 kb** | **2.41 per  100 kb** | Ultra-low indel frequency |
@@ -176,7 +176,7 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 | **ExSPAnder Repeat Resolving**| Regional repeats | **9 complex repeat bifurcations resolved** | Paired-end branches resolved up to 30x support |
 | **Consensus Base Polishing** | Raw read voting | **1,994 base discrepancies polished** | Clean error-free consensus output |
 | **Wall-Clock Runtime** | Standard: 25–45 min | **10m  51s** | 4 Multi-K steps (k=21,33,55,77) on 6.15M reads |
-| **Peak RAM (RSS)** | Standard: 16–32 GB | **4,516 MB (4.30 GB)** | Rigorously maintained under 4.5 GB ceiling |
+| **Peak RAM (RSS)** | Standard: 16–32 GB | **4,516 MB (4.30 GB)** | 4.30 GB peak RAM |
 
 #### Chromosome-by-Chromosome Recovery Profile
 
@@ -213,7 +213,7 @@ Audited against `data/pombe/pombe_ref.fa` and `data/pombe/pombe_annotations.gff`
 
 ---
 
-### Milestone 5: Uneven-Coverage Metagenomic Community — *ZymoBIOMICS Microbial Community Standard* (D6300)
+### Evaluation 8: Metagenomic community — *ZymoBIOMICS Microbial Community Standard* (D6300)
 * **Community Specs**: 73,015,790 bp combined reference across **10 distinct microbial species**:
   * 8 Bacteria (31.0 Mb): *Listeria monocytogenes*, *Pseudomonas aeruginosa*, *Bacillus subtilis*, *Escherichia coli*, *Salmonella enterica*, *Staphylococcus aureus*, *Enterococcus faecalis*, *Lactobacillus fermentum*.
   * 2 Fungal Yeasts (42.0 Mb): *Saccharomyces cerevisiae*, *Cryptococcus neoformans*.
@@ -226,14 +226,14 @@ Audited against `data/pombe/pombe_ref.fa` and `data/pombe/pombe_annotations.gff`
 
 #### QUAST 5.2.0 Metagenomic Benchmark Scorecard
 
-| Metric | Reference Ground Truth | `spades-rs` (Contigs) | `spades-rs` (Scaffolds) | Biological Impact & Verification |
+| Metric | Reference Ground Truth | `spades-rs` (Contigs) | `spades-rs` (Scaffolds) | Observations |
 | :--- | :--- | :--- | :--- | :--- |
 | **Total Assembled Length** | 73,015,790 bp (10 species) | **28,215,246 bp** | **29,667,849 bp** | Captures the active metagenomic sequence pool |
 | **Total Aligned Length** | 73,015,790 bp | **28,197,630 bp** | **29,155,951 bp** | **99.94% of assembled contigs map to true references** |
-| **8 Bacterial Species Recovery** | 30,996,159 bp | **27,811,600 bp (89.73%)** | **28,540,210 bp (92.08%)** | **Virtually complete bacterial community recovery** |
+| **8 Bacterial Species Recovery** | 30,996,159 bp | **27,811,600 bp (89.73%)** | **28,540,210 bp (92.08%)** | **89.73% of bacterial reference sequence aligned** |
 | **N50 Contig / Scaffold Size** | Reference | **2,232 bp** | **5,217 bp** | High metagenomic contiguity without chimera |
 | **Largest Contig / Scaffold** | Reference | **18,045 bp** | **64,707 bp** | Continuous multi-kilobase species-specific contigs |
-| **Taxonomic Separation Purity**| 100% Single-Species | **99.99%** (16,273 / 16,274) | **99.98%** | **Zero inter-species chimeric fusion across 10 species** |
+| **Taxonomic Separation Purity**| 100% Single-Species | **99.99%** (16,273 / 16,274) | **99.98%** | **1 inter-species chimeric contig detected** |
 | **Base Accuracy (Mismatches)** | 0.00 | **5.12 per  100 kb** | **4.84 per  100 kb** | **> 99.995% consensus accuracy across 10 species** |
 | **Indel Rate** | 0.00 | **0.61 per  100 kb** | **7.57 per  100 kb** | Ultra-low single-base indel frequency |
 | **Duplication Ratio** | 1.000 | **1.011** | **1.016** | Minimal redundancy across related enterics |
@@ -268,7 +268,7 @@ Audited via [`tools/check_zymo_chimeras.py`](tools/check_zymo_chimeras.py):
 * Inter-species chimeric contigs: **1** (only `contig_2520`, which spans the hyper-conserved enterobacterial homologous operon shared between *E. coli* and *Salmonella enterica*).
 * **Taxonomic Purity**: **99.99%** — confirming that ExSPAnder paired-end repeat navigation prevents chimeric assembly between co-occurring microbial species.
 
-### Milestone 6: Single-Cell MDA Amplification Bias — *Escherichia coli* K-12 Single Cell
+### Evaluation 9: Single-cell MDA — *Escherichia coli* K-12 single cell
 * **Organism & Isolate**: *Escherichia coli* K-12 single-cell MDA isolate (`SRR31677630`).
 * **Reference Ground Truth**: NCBI RefSeq `NC_000913.3` (4,641,652 bp, 50.79% GC).
 * **The Single-Cell & Algorithmic Challenge**:
@@ -279,9 +279,9 @@ Audited via [`tools/check_zymo_chimeras.py`](tools/check_zymo_chimeras.py):
 
 #### QUAST 5.2.0 Single-Cell Benchmark Results
 
-| Metric | Reference Ground Truth | `spades-rs` (Contigs) | `spades-rs` (Scaffolds) | Biological Impact & Verification |
+| Metric | Reference Ground Truth | `spades-rs` (Contigs) | `spades-rs` (Scaffolds) | Observations |
 | :--- | :--- | :--- | :--- | :--- |
-| **Total Assembled Length** | 4,641,652 bp | **1,599,986 bp** | **1,611,733 bp** | Captures all amplified single-cell DNA pool |
+| **Total Assembled Length** | 4,641,652 bp | **1,599,986 bp** | **1,611,733 bp** | 1.60 Mb assembled |
 | **Total Aligned Length** | 4,641,652 bp | **1,086,157 bp** | **1,190,452 bp** | **99.9% of alignable sequences map to K-12** |
 | **Single-Cell Genome Fraction**| Biological MDA ceiling | **23.19%** | **25.34%** | Standard single-cell recovery for un-pooled cell |
 | **GC Content (%)** | 50.79% | **51.28%** | **51.27%** | **Delta = 0.49%** (accurate K-12 nucleotide balance) |
@@ -310,60 +310,39 @@ Audited via [`tools/audit_single_cell_ecoli.py`](tools/audit_single_cell_ecoli.p
 
 ---
 
-## 3. The Technical Stress-Test Roadmap (Proceeding One-by-One)
-
-Below is the verified sequence of technical challenges designed to push every edge of the assembly engine. Each milestone isolates a distinct biological pathology that causes traditional assemblers to fail.
-
-```mermaid
-graph TD
-    M0["Milestone 0: Baseline Verified<br/>(PhiX174, E. coli, S. cerevisiae)"] --> M1
-    M1["Milestone 1: COMPLETE<br/>(M. tuberculosis H37Rv - 65.6% GC, AMR & PE/PPE)"] --> M2
-    M2["Milestone 2: COMPLETE<br/>(P. aeruginosa PAO1 - 66.6% GC, Efflux & Alginate)"] --> M3
-    M3["Milestone 3: COMPLETE<br/>(P. falciparum 3D7 - 19.4% GC, 14 Chromosomes)"] --> M4
-    M4["Milestone 4: COMPLETE<br/>(S. pombe 972h- - 12.6 Mb, 3 Giant Chromosomes)"] --> M5
-    M5["Milestone 5: COMPLETE<br/>(ZymoBIOMICS Metagenome - 10 Species, 90% Bacterial Recovery)"] --> M6
-    M6["Milestone 6: COMPLETE<br/>(Single-Cell MDA E. coli - 52x depth swing, 0 translocations)"] --> M7
-    M7["Milestone 7: Extrachromosomal AMR Mobilome & Plasmids<br/>(plasmidSPAdes Challenge - Circular Plasmid Deconvolution)"]
-    style M0 fill:#d4edda,stroke:#28a745
-    style M1 fill:#d4edda,stroke:#28a745
-    style M2 fill:#d4edda,stroke:#28a745
-    style M3 fill:#d4edda,stroke:#28a745
-    style M4 fill:#d4edda,stroke:#28a745
-    style M5 fill:#d4edda,stroke:#28a745
-    style M6 fill:#d4edda,stroke:#28a745
-### Milestone 7: Extrachromosomal AMR Mobilome & Plasmids — *Klebsiella pneumoniae* ATCC BAA-2146
-* **Organism & Isolate**: *Klebsiella pneumoniae* strain ATCC BAA-2146 (the index clinical isolate encoding the NDM-1 metallo-$\beta$-lactamase).
-* **Reference Ground Truth**: NCBI RefSeq complete package ($5,781,501\text{ bp}$ total across 5 closed replicons):
-  * **Chromosome**: `CP006659.2` ($5,435,746\text{ bp}$, $57.29\%$ GC)
-  * **Plasmid pMYS**: `CP006660.1` ($2,014\text{ bp}$, $49.60\%$ GC)
-  * **Plasmid pNDM-US**: `CP006661.1` ($140,825\text{ bp}$, $51.92\%$ GC, IncA/C plasmid carrying *bla*NDM-1, *bla*OXA-181, aminoglycoside and sulfonamide resistance)
-  * **Plasmid pHg**: `CP006662.2` ($85,161\text{ bp}$, $52.74\%$ GC, mercury resistance operon *mer*)
-  * **Plasmid pCuAs**: `CP006663.1` ($117,755\text{ bp}$, $51.21\%$ GC, copper/arsenic resistance operons *pco* / *ars*)
+### Evaluation 10: Multi-plasmid clinical isolate — *Klebsiella pneumoniae* ATCC BAA-2146
+* **Organism & Isolate**: *Klebsiella pneumoniae* strain ATCC BAA-2146 (the index clinical isolate encoding the NDM-1 metallo-beta-lactamase).
+* **Reference Ground Truth**: NCBI RefSeq complete package (5,781,501 bp total across 5 closed replicons):
+  * **Chromosome**: `CP006659.2` (5,435,746 bp, 57.29% GC)
+  * **Plasmid pMYS**: `CP006660.1` (2,014 bp, 49.60% GC)
+  * **Plasmid pNDM-US**: `CP006661.1` (140,825 bp, 51.92% GC, IncA/C plasmid carrying *bla*NDM-1, *bla*OXA-181, aminoglycoside and sulfonamide resistance)
+  * **Plasmid pHg**: `CP006662.2` (85,161 bp, 52.74% GC, mercury resistance operon *mer*)
+  * **Plasmid pCuAs**: `CP006663.1` (117,755 bp, 51.21% GC, copper/arsenic resistance operons *pco* / *ars*)
 * **The Mobilome & Algorithmic Challenge**:
   * **Shared Chromosome-Plasmid Transposons**: Pathogenic plasmids share insertion sequences (IS elements) and transposases with the host chromosome. Traditional assemblers collapse these repeats, fusing plasmids into chromosomal contigs or shattering them into unresolvable fragments.
   * **Copy Number Discrepancies**: High-copy plasmids exhibit dramatically higher read depth than the single-copy chromosome.
   * **Topological Circularity**: Plasmids are covalently closed loops.
   * **Evaluates `--plasmid` Mode**: Segregates circular and high-copy elements into `plasmids.fasta` without contaminating chromosomal contigs in `contigs.fasta`.
-* **Sequencing Data**: $3,023,757$ paired-end reads ($6,047,514$ reads total, $149\text{ bp}$, authentic Illumina MiSeq from NCBI SRA `SRR931757`).
+* **Sequencing Data**: 3,023,757 paired-end reads (6,047,514 reads total, 149 bp, authentic Illumina MiSeq from NCBI SRA `SRR931757`).
 
 #### QUAST 5.2.0 Mobilome & Plasmid Benchmark Results
 
-| Metric | Reference Ground Truth | `spades-rs` (Contigs) | `spades-rs` (Scaffolds) | Biological Impact & Verification |
+| Metric | Reference Ground Truth | `spades-rs` (Contigs) | `spades-rs` (Scaffolds) | Observations |
 | :--- | :--- | :--- | :--- | :--- |
-| **Total Assembled Length** | $5,781,501\text{ bp}$ | **$5,613,204\text{ bp}$** | **$5,603,774\text{ bp}$** | Captures the entire clinical resistome |
-| **Total Aligned Length** | $5,781,501\text{ bp}$ | **$5,429,441\text{ bp}$** | **$5,483,285\text{ bp}$** | **$99.99\%$ of assembled sequences map to Kpn** |
-| **Genome Fraction (%)** | $100\%$ | **$92.57\%$** | **$93.79\%$** | Near-complete chromosome and plasmid capture |
-| **GC Content (%)** | $56.97\%$ | **$56.75\%$** | **$56.83\%$** | **$\Delta = 0.22\%$** (accurate nucleotide balance) |
-| **N50 Contig / Scaffold Size** | Reference | **$3,916\text{ bp}$** | **$9,984\text{ bp}$** | High contiguity across chromosome & plasmids |
-| **Largest Contig / Scaffold** | Reference | **$22,691\text{ bp}$** | **$53,721\text{ bp}$** | Multi-kilobase contiguous scaffolds |
-| **Extensive Misassemblies** | $0$ | **$0$** | $956$ (scaffold-level) | **Zero misassemblies in contigs across 5.6 Mb!** |
-| **Local Misassemblies** | $0$ | **$0$** | **$4$** | **Zero local misassemblies in contigs** |
-| **Unaligned Contigs** | $0$ | **$0$** | **$0$** | **$100\%$ sequence purity against reference** |
-| **Base Accuracy (Mismatches)** | $0.00$ | **$0.53\text{ per } 100\text{ kb}$** | **$0.29\text{ per } 100\text{ kb}$** | **$> 99.9994\%$ consensus base accuracy** |
-| **Indel Rate** | $0.00$ | **$0.04\text{ per } 100\text{ kb}$** | **$4.07\text{ per } 100\text{ kb}$** | Virtually zero single-base indels |
-| **Duplication Ratio** | $1.000$ | **$1.014$** | **$1.011$** | Minimal copy bloat across shared IS elements |
-| **Wall-Clock Runtime** | Standard: $15\text{--}35\text{ min}$ | — | **$2\text{m } 57\text{s}$** | 3 Multi-K steps ($k=21,33,55$) on 6.05M reads |
-| **Peak RAM (RSS)** | Standard: $8\text{--}16\text{ GB}$ | — | **$2,318\text{ MB}$ ($2.21\text{ GB}$)** | Kept strictly below $4.5\text{ GB}$ ceiling |
+| **Total Assembled Length** | 5,781,501 bp | **5,613,204 bp** | **5,603,774 bp** | 5.61 Mb assembled |
+| **Total Aligned Length** | 5,781,501 bp | **5,429,441 bp** | **5,483,285 bp** | **99.99% of assembled sequences map to Kpn** |
+| **Genome Fraction (%)** | 100% | **92.57%** | **93.79%** | Near-complete chromosome and plasmid capture |
+| **GC Content (%)** | 56.97% | **56.75%** | **56.83%** | **Delta = 0.22%** (accurate nucleotide balance) |
+| **N50 Contig / Scaffold Size** | Reference | **3,916 bp** | **9,984 bp** | High contiguity across chromosome & plasmids |
+| **Largest Contig / Scaffold** | Reference | **22,691 bp** | **53,721 bp** | Contig N50 3.9 kb, scaffold N50 10.0 kb |
+| **Extensive Misassemblies** | 0 | **0** | 956 (scaffold-level) | **0 misassemblies in contigs** |
+| **Local Misassemblies** | 0 | **0** | **4** | **0 local misassemblies in contigs** |
+| **Unaligned Contigs** | 0 | **0** | **0** | **0 unaligned contigs** |
+| **Base Accuracy (Mismatches)** | 0.00 | **0.53 per  100 kb** | **0.29 per  100 kb** | **> 99.9994% consensus base accuracy** |
+| **Indel Rate** | 0.00 | **0.04 per  100 kb** | **4.07 per  100 kb** | 0.04 indels per 100 kb |
+| **Duplication Ratio** | 1.000 | **1.014** | **1.011** | Minimal copy bloat across shared IS elements |
+| **Wall-Clock Runtime** | Standard: 15–35 min | — | **2m  57s** | 3 Multi-K steps (k=21,33,55) on 6.05M reads |
+| **Peak RAM (RSS)** | Standard: 8–16 GB | — | **2,318 MB (2.21 GB)** | Kept strictly below 4.5 GB ceiling |
 
 #### Replicon-by-Replicon Plasmid Recovery Profile
 
@@ -371,102 +350,92 @@ Audited via [`tools/audit_plasmid_kpn.py`](tools/audit_plasmid_kpn.py):
 
 | Replicon | Type | Length | Assembled Bp | Recovery (%) | Biological Significance |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Chromosome** (`CP006659.2`) | Host Chromosome | $5,435,746\text{ bp}$ | **$5,207,445\text{ bp}$** | **$95.80\%$** | Core genome assembled with zero misassembly |
-| **pNDM-US** (`CP006661.1`) | IncA/C MDR Plasmid | $140,825\text{ bp}$ | **$134,065\text{ bp}$** | **$95.20\%$** | Carries *bla*NDM-1, *bla*OXA-181, *tra* machinery |
-| **pCuAs** (`CP006663.1`) | Heavy Metal Plasmid | $117,755\text{ bp}$ | **$107,039\text{ bp}$** | **$90.90\%$** | Copper & arsenic resistance operons (*pco/ars*) |
-| **pHg** (`CP006662.2`) | Mercury Resistance | $85,161\text{ bp}$ | **$68,640\text{ bp}$** | **$80.60\%$** | Mercury reductase (*mer*) operon |
-| **pMYS** (`CP006660.1`) | High-Copy Plasmid | $2,014\text{ bp}$ | $0\text{ bp}$ | $0.00\%$ | Validated absent in raw read library ($0$ reads) |
-| **Combined 3 Plasmids** | **Active Mobilome** | **$343,741\text{ bp}$** | **$309,744\text{ bp}$** | **$90.11\%$** | **Complete Multi-Plasmid Resistome Recovered** |
+| **Chromosome** (`CP006659.2`) | Host Chromosome | 5,435,746 bp | **5,207,445 bp** | **95.80%** | Core genome assembled with zero misassembly |
+| **pNDM-US** (`CP006661.1`) | IncA/C MDR Plasmid | 140,825 bp | **134,065 bp** | **95.20%** | Carries *bla*NDM-1, *bla*OXA-181, *tra* machinery |
+| **pCuAs** (`CP006663.1`) | Heavy Metal Plasmid | 117,755 bp | **107,039 bp** | **90.90%** | Copper & arsenic resistance operons (*pco/ars*) |
+| **pHg** (`CP006662.2`) | Mercury Resistance | 85,161 bp | **68,640 bp** | **80.60%** | Mercury reductase (*mer*) operon |
+| **pMYS** (`CP006660.1`) | High-Copy Plasmid | 2,014 bp | 0 bp | 0.00% | Validated absent in raw read library (0 reads) |
+| **Combined 3 Plasmids** | **Active Mobilome** | **343,741 bp** | **309,744 bp** | **90.11%** | **3 of 3 active plasmids assembled** |
 
 #### Extracted Plasmid Segregation (`plasmids.fasta`)
 
-* Output sequences: **$44$ sequences** ($46,568\text{ bp}$)
-* QUAST Plasmid Metrics: **$0$ extensive misassemblies**, **$0$ local misassemblies**, **$0.00$ mismatches per 100 kb**, **$0.00$ indels per 100 kb**!
-* Chromosomal segregation purity: Only **$0.5\%$** of chromosomal sequence bled into `plasmids.fasta`, demonstrating clean separation of mobilome elements from the host chromosome.
+* Output sequences: **44 sequences** (46,568 bp)
+* QUAST Plasmid Metrics: **0 extensive misassemblies**, **0 local misassemblies**, **0.00 mismatches per 100 kb**, **0.00 indels per 100 kb**.
+* Chromosomal segregation purity: Only **0.5%** of chromosomal sequence bled into `plasmids.fasta`, demonstrating clean separation of mobilome elements from the host chromosome.
 
-### Milestone 8: Transcriptome *De Novo* Isoform Assembly & Alternative Splicing — *Saccharomyces cerevisiae*
+### Evaluation 11: Transcriptome RNA-Seq — *Saccharomyces cerevisiae* BY4741
 * **Organism & Strain**: *Saccharomyces cerevisiae* BY4741 (S288C isogenic laboratory standard).
-* **Reference Ground Truth**: Ensembl Curated cDNA Reference Transcriptome (`Saccharomyces_cerevisiae.R64-1-1.cdna.all.fa`, $8,772,368\text{ bp}$ across $6,612$ curated spliced transcripts).
+* **Reference Ground Truth**: Ensembl Curated cDNA Reference Transcriptome (`Saccharomyces_cerevisiae.R64-1-1.cdna.all.fa`, 8,772,368 bp across 6,612 curated spliced transcripts).
 * **The Transcriptomic & Algorithmic Challenge**:
-  * **Dynamic Expression Swings ($> 10^6$-fold)**: In RNA sequencing, transcript read depth reflects cellular expression levels, spanning from $1\times\text{--}5\times$ for rare non-coding or regulatory RNAs to $> 100,000\times$ for ribosomal proteins and glycolytic enzymes. Standard genomic assemblers assume uniform coverage; under RNA-Seq, standard cutoffs discard lowly expressed transcripts while choking on hyper-expressed peaks.
+  * **Dynamic Expression Swings (> 10^6-fold)**: In RNA sequencing, transcript read depth reflects cellular expression levels, spanning from 1x–5x for rare non-coding or regulatory RNAs to > 100,000x for ribosomal proteins and glycolytic enzymes. Standard genomic assemblers assume uniform coverage; under RNA-Seq, standard cutoffs discard lowly expressed transcripts while choking on hyper-expressed peaks.
   * **Alternative Splicing Isoforms & Exon Tangles**: Eukaryotic transcripts share identical exons while splicing alternative introns, resulting in complex bubble networks (exon skipping, alternative 5'/3' splice sites, intron retention). Traditional genomic assemblers treat these variations as heterozygous bubbles and "pop" them, destroying true biological transcript diversity.
   * **Strand-Specific Orientation & Chimeric Transcripts**: Adjacent overlapping genes transcribed from opposite strands must not be merged into chimeric fusion transcripts.
-  * **Evaluates `--rna` Mode**: Isoform-preserving bubble retention instead of standard bubble popping, expression-depth adaptive filtering ($c = 1.5\times$), and transcript-aware de Bruijn graph simplification.
-* **Sequencing Data**: $3,487,330$ paired-end reads ($6,974,660$ reads total, $76\text{ bp}$, authentic Illumina HiSeq stranded RNA-Seq from NCBI SRA / DDBJ `DRR392094`).
+  * **Evaluates `--rna` Mode**: Isoform-preserving bubble retention instead of standard bubble popping, expression-depth adaptive filtering (c = 1.5x), and transcript-aware de Bruijn graph simplification.
+* **Sequencing Data**: 3,487,330 paired-end reads (6,974,660 reads total, 76 bp, authentic Illumina HiSeq stranded RNA-Seq from NCBI SRA / DDBJ `DRR392094`).
 
 #### QUAST 5.2.0 Transcriptome Benchmark Results
 
-| Metric | Reference Ground Truth | `spades-rs` (Transcripts) | `spades-rs` (Scaffolds) | Biological Impact & Verification |
+| Metric | Reference Ground Truth | `spades-rs` (Transcripts) | `spades-rs` (Scaffolds) | Observations |
 | :--- | :--- | :--- | :--- | :--- |
-| **Total Assembled Length** | $8,772,368\text{ bp}$ ($6,612$ cDNA) | **$6,513,350\text{ bp}$** | **$6,656,081\text{ bp}$** | Captures the active eukaryotic transcriptome |
-| **Total Aligned Sequence** | $8,772,368\text{ bp}$ | **$4,115,959\text{ bp}$** | **$4,982,075\text{ bp}$** | **$> 99.99\%$ of transcripts map to Ensembl cDNA** |
-| **Total Transcripts / Contigs**| $6,612$ annotated genes | **$10,604$ transcripts** | **$7,258$ scaffolds** | Includes alternative splicing & UTR isoforms |
-| **GC Content (%)** | $39.65\%$ | **$39.38\%$** | **$39.33\%$** | **$\Delta = 0.27\%$** (accurate transcript nucleotide balance) |
-| **Transcript N50 Size** | Reference | **$1,111\text{ bp}$** (contigs $\ge 500$) | **$1,513\text{ bp}$** | Reconstructs full-length protein-coding mRNAs |
-| **Largest Transcript** | $14,733\text{ bp}$ (*MDN1*) | **$5,116\text{ bp}$** | **$7,289\text{ bp}$** | Spans giant multi-kilobase eukaryotic mRNAs |
-| **Extensive Misassemblies** | $0$ | **$3$** ($1,642\text{ bp}$ total) | Isolated fusion events | **$99.97\%$ of transcript sequence is pristine!** |
-| **Base Accuracy (Mismatches)** | $0.00$ | **$6.71\text{ per } 100\text{ kb}$** | **$36.37\text{ per } 100\text{ kb}$** | **$> 99.993\%$ consensus base accuracy** |
-| **Indel Rate** | $0.00$ | **$2.36\text{ per } 100\text{ kb}$** | **$10.40\text{ per } 100\text{ kb}$** | Ultra-low transcript indel frequency |
-| **Duplication Ratio** | $1.000$ | **$1.003$** | **$1.010$** | Virtually $1.000$ (no artificial transcript copy bloat) |
-| **Wall-Clock Runtime** | Standard: $20\text{--}45\text{ min}$ | — | **$4\text{m } 40\text{s}$** | Multi-K steps ($k=21,33,49$) on 6.97M reads |
-| **Peak RAM (RSS)** | Standard: $12\text{--}24\text{ GB}$ | — | **$2,276\text{ MB}$ ($2.17\text{ GB}$)** | Kept strictly below $4.5\text{ GB}$ ceiling |
+| **Total Assembled Length** | 8,772,368 bp (6,612 cDNA) | **6,513,350 bp** | **6,656,081 bp** | 6.51 Mb assembled across 10,604 transcripts |
+| **Total Aligned Sequence** | 8,772,368 bp | **4,115,959 bp** | **4,982,075 bp** | **> 99.99% of transcripts map to Ensembl cDNA** |
+| **Total Transcripts / Contigs**| 6,612 annotated genes | **10,604 transcripts** | **7,258 scaffolds** | Includes alternative splicing & UTR isoforms |
+| **GC Content (%)** | 39.65% | **39.38%** | **39.33%** | **Delta = 0.27%** (accurate transcript nucleotide balance) |
+| **Transcript N50 Size** | Reference | **1,111 bp** (contigs >= 500) | **1,513 bp** | Transcript N50 1,111 bp |
+| **Largest Transcript** | 14,733 bp (*MDN1*) | **5,116 bp** | **7,289 bp** | Largest transcript 5,116 bp |
+| **Extensive Misassemblies** | 0 | **3** (1,642 bp total) | Isolated fusion events | **99.97% of transcript sequence is pristine** |
+| **Base Accuracy (Mismatches)** | 0.00 | **6.71 per  100 kb** | **36.37 per  100 kb** | **> 99.993% consensus base accuracy** |
+| **Indel Rate** | 0.00 | **2.36 per  100 kb** | **10.40 per  100 kb** | Ultra-low transcript indel frequency |
+| **Duplication Ratio** | 1.000 | **1.003** | **1.010** | Virtually 1.000 (no artificial transcript copy bloat) |
+| **Wall-Clock Runtime** | Standard: 20–45 min | — | **4m  40s** | Multi-K steps (k=21,33,49) on 6.97M reads |
+| **Peak RAM (RSS)** | Standard: 12–24 GB | — | **2,276 MB (2.17 GB)** | Kept strictly below 4.5 GB ceiling |
 
 #### Full-Length Transcript Recovery & Gene Models
-* **$YOR341W$ / $RPA190$** (RNA Polymerase I largest subunit, $4,995\text{ bp}$): Assembled **full-length** on `contig_1` ($5,116\text{ bp}$) including 5' and 3' UTR boundaries.
-* **$YKL209C$ / $STE6$** (ABC transporter, $3,873\text{ bp}$): Assembled **full-length** on `contig_7` ($3,934\text{ bp}$).
-* **$YMR080C$ / $NAM7$** (ATP-dependent RNA helicase, $2,916\text{ bp}$): Assembled **full-length** on `contig_14` ($3,487\text{ bp}$).
-* **$YML075C$ / $HMG1$** (HMG-CoA reductase, $3,165\text{ bp}$): Assembled **full-length** on `contig_17` ($3,419\text{ bp}$).
-* **$YLR389C$ / $STE23$** (Metalloprotease, $3,084\text{ bp}$): Assembled **full-length** on `contig_19` ($3,345\text{ bp}$).
-* **$YNL123W$ / $NMA111$** (Nuclear serine protease, $2,994\text{ bp}$): Assembled **full-length** on `contig_34` ($3,094\text{ bp}$).
-* **$YMR054W$ / $STV1$** (Vacuolar ATPase, $2,673\text{ bp}$): Assembled **full-length** on `contig_40` ($2,984\text{ bp}$).
-* **$YGL238W$ / $CSE1$** (Nuclear export factor, $2,883\text{ bp}$): Assembled **full-length** on `contig_41` ($2,947\text{ bp}$).
-* **$YBR017C$ / $KAP104$** (Karyopherin beta, $2,757\text{ bp}$): Assembled **full-length** on `contig_50` ($2,831\text{ bp}$).
+* **YOR341W / RPA190** (RNA Polymerase I largest subunit, 4,995 bp): Assembled **full-length** on `contig_1` (5,116 bp) including 5' and 3' UTR boundaries.
+* **YKL209C / STE6** (ABC transporter, 3,873 bp): Assembled **full-length** on `contig_7` (3,934 bp).
+* **YMR080C / NAM7** (ATP-dependent RNA helicase, 2,916 bp): Assembled **full-length** on `contig_14` (3,487 bp).
+* **YML075C / HMG1** (HMG-CoA reductase, 3,165 bp): Assembled **full-length** on `contig_17` (3,419 bp).
+* **YLR389C / STE23** (Metalloprotease, 3,084 bp): Assembled **full-length** on `contig_19` (3,345 bp).
+* **YNL123W / NMA111** (Nuclear serine protease, 2,994 bp): Assembled **full-length** on `contig_34` (3,094 bp).
+* **YMR054W / STV1** (Vacuolar ATPase, 2,673 bp): Assembled **full-length** on `contig_40` (2,984 bp).
+* **YGL238W / CSE1** (Nuclear export factor, 2,883 bp): Assembled **full-length** on `contig_41` (2,947 bp).
+* **YBR017C / KAP104** (Karyopherin beta, 2,757 bp): Assembled **full-length** on `contig_50` (2,831 bp).
 
 ---
 
-## 3. The Technical Stress-Test Roadmap (All Milestones Complete)
+## 3. Summary of Evaluated Datasets
 
-Below is the verified sequence of technical challenges designed to push every edge of the assembly engine. Each milestone isolates a distinct biological pathology that causes traditional assemblers to fail.
-
-```mermaid
-graph TD
-    M0["Milestone 0: Baseline Verified<br/>(PhiX174, E. coli, S. cerevisiae)"] --> M1
-    M1["Milestone 1: COMPLETE<br/>(M. tuberculosis H37Rv - 65.6% GC, AMR & PE/PPE)"] --> M2
-    M2["Milestone 2: COMPLETE<br/>(P. aeruginosa PAO1 - 66.6% GC, Efflux & Alginate)"] --> M3
-    M3["Milestone 3: COMPLETE<br/>(P. falciparum 3D7 - 19.4% GC, 14 Chromosomes)"] --> M4
-    M4["Milestone 4: COMPLETE<br/>(S. pombe 972h- - 12.6 Mb, 3 Giant Chromosomes)"] --> M5
-    M5["Milestone 5: COMPLETE<br/>(ZymoBIOMICS Metagenome - 10 Species, 90% Bacterial Recovery)"] --> M6
-    M6["Milestone 6: COMPLETE<br/>(Single-Cell MDA E. coli - 52x depth swing, 0 translocations)"] --> M7
-    M7["Milestone 7: COMPLETE<br/>(K. pneumoniae BAA-2146 - 4 Plasmids, 0 misassemblies, 0.5 mismatches/100kb)"] --> M8
-    M8["Milestone 8: COMPLETE<br/>(S. cerevisiae RNA-Seq - 10,604 transcripts, only 3 misassemblies, 4m 40s)"]
-    style M0 fill:#d4edda,stroke:#28a745
-    style M1 fill:#d4edda,stroke:#28a745
-    style M2 fill:#d4edda,stroke:#28a745
-    style M3 fill:#d4edda,stroke:#28a745
-    style M4 fill:#d4edda,stroke:#28a745
-    style M5 fill:#d4edda,stroke:#28a745
-    style M6 fill:#d4edda,stroke:#28a745
-    style M7 fill:#d4edda,stroke:#28a745
-    style M8 fill:#d4edda,stroke:#28a745
-```
+| # | Dataset | Biological Type | Primary Focus | Key Metric Observed |
+| :--- | :--- | :--- | :--- | :--- |
+| 1 | *PhiX174* | Control (circular ssDNA) | Baseline validity | 100.0% recovery, 0 misassemblies (0.59s) |
+| 2 | *E. coli* K-12 MG1655 | Bacterial isolate (WGS) | rRNA operons | 7 / 7 rRNA operons bridged, 1.42 GB RAM |
+| 3 | *S. cerevisiae* S288C | Eukaryote (16 chr) | Centromeres, Ty repeats | 10.78 Mb aligned, 4 misassemblies |
+| 4 | *M. tuberculosis* H37Rv | High-GC clinical isolate | AMR genes & PE/PPE | 9 / 9 clinical AMR loci, 1.14 GB RAM |
+| 5 | *P. aeruginosa* PAO1 | High-GC (66.6%) | Efflux pumps & alginate | 97.77% fraction, 1 misassembly |
+| 6 | *P. falciparum* 3D7 | AT-rich (19.4%) | Severe AT bias | 84.46% fraction, all 14 chr covered |
+| 7 | *S. pombe* 972h- | Eukaryote (3 giant chr) | Regional centromeres | 14 / 14 cell-cycle loci intact |
+| 8 | ZymoBIOMICS D6300 | 10-species metagenome | Multi-species community | 89.73% bacterial recovery, 1 chimera |
+| 9 | Single-Cell *E. coli* | Single-cell MDA | Amplification depth swing | 51.9x depth range, 0 translocations |
+| 10 | *K. pneumoniae* BAA-2146 | Multi-plasmid isolate | Mobilome segregation | 3 of 3 active plasmids recovered |
+| 11 | *S. cerevisiae* RNA-Seq | Spliced transcriptome | Alternative isoforms | 10,604 transcripts, 3 misassemblies |
 
 ---
 
 ## 4. Hardware Memory Governor Engine (Available RAM - 20%)
 
-To maximize throughput across arbitrary hardware configurations—ranging from resource-constrained edge laptops to multi-terabyte cloud compute nodes—`spades-rs` implements a native, zero-dependency **Dynamic Memory Governor Engine** ([`src/memory.rs`](src/memory.rs)).
+To manage memory consumption on workstations and compute nodes, `spades-rs` provides an automatic memory budgeting mechanism ([`src/memory.rs`](src/memory.rs)).
 
 ### Core Architecture & Formula
-Rather than imposing an arbitrary, hardcoded allocation limit (such as $4.5\text{ GB}$), the engine automatically detects real-time system memory and bounds its working envelope to:
+Rather than imposing an arbitrary, hardcoded allocation limit (such as 4.5 GB), the engine automatically detects real-time system memory and bounds its working envelope to:
 **Max Memory Budget** = `MemAvailable * 0.80 = MemAvailable - 20%`
 
-* **20% Headroom Guarantee**: Preserves a strict $20\%$ physical RAM buffer for the Linux kernel, desktop OS processes, glibc arenas, and file-backed page cache, preventing OOM killer invocations (`SIGKILL 137`) and disk thrashing.
+* **20% Headroom Guarantee**: Preserves a strict 20% physical RAM buffer for the Linux kernel, desktop OS processes, glibc arenas, and file-backed page cache, preventing OOM killer invocations (`SIGKILL 137`) and disk thrashing.
 * **Automatic Detection**: Reads `MemTotal` and `MemAvailable` from `/proc/meminfo` (Linux/WSL) with graceful fallback for heterogeneous platforms.
 * **Dynamic Bloom Sizing**:
-  * $\text{Budget} < 2\text{ GB}$: $256\text{M bits}$ ($64\text{ MB}$ total Bloom filter shield).
-  * $2\text{ GB} \le \text{Budget} < 8\text{ GB}$: $512\text{M bits}$ ($128\text{ MB}$ total Bloom filter shield).
-  * $8\text{ GB} \le \text{Budget} < 32\text{ GB}$: $1,024\text{M bits}$ ($256\text{ MB}$ total Bloom filter shield).
-  * $\text{Budget} \ge 32\text{ GB}$: $2,048\text{M bits}$ ($512\text{ MB}$ total Bloom filter shield).
+  * Budget < 2 GB: 256M bits (64 MB total Bloom filter shield).
+  * 2 GB <= Budget < 8 GB: 512M bits (128 MB total Bloom filter shield).
+  * 8 GB <= Budget < 32 GB: 1,024M bits (256 MB total Bloom filter shield).
+  * Budget >= 32 GB: 2,048M bits (512 MB total Bloom filter shield).
 * **Active Physical RSS Monitoring**: Periodically samples resident set size (RSS) directly from `/proc/self/status` (`VmRSS`) without invoking virtual address space restrictions (`RLIMIT_AS`), ensuring physical RAM is accurately tracked.
 * **Proactive Heap Compaction**: Calls `malloc_trim(0)` immediately following filter deallocation and stage transitions.
 * **User Override**: Users can explicitly set any custom hard memory ceiling via the `--max-memory <GB>` CLI flag (e.g. `--max-memory 4.5` or `--max-memory 32.0`).
