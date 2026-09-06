@@ -4,7 +4,7 @@ use spades_rs::hammer::{hamming_distance_2bit, ErrorCorrector};
 
 #[test]
 fn test_hamming_distance_exhaustive_single_base() {
-    let bases = [b'A', b'C', b'G', b'T'];
+    let bases = *b"ACGT";
     for (i, &b1) in bases.iter().enumerate() {
         for (j, &b2) in bases.iter().enumerate() {
             let val1 = base_to_2bit(b1).unwrap() as u64;
@@ -13,7 +13,11 @@ fn test_hamming_distance_exhaustive_single_base() {
             if i == j {
                 assert_eq!(dist, 0, "Same base {} must have distance 0", b1 as char);
             } else {
-                assert_eq!(dist, 1, "Different bases {} and {} must have distance 1", b1 as char, b2 as char);
+                assert_eq!(
+                    dist, 1,
+                    "Different bases {} and {} must have distance 1",
+                    b1 as char, b2 as char
+                );
             }
         }
     }
@@ -88,5 +92,9 @@ fn test_error_corrector_single_base_correction() {
     let (corrected_reads, count) = corrector.correct_reads(vec![corrupted], &filter);
 
     assert_eq!(count, 1, "Expected exactly 1 read corrected");
-    assert_eq!(corrected_reads[0], ref_seq.to_vec(), "Corrupted read should be restored to reference");
+    assert_eq!(
+        corrected_reads[0],
+        ref_seq.to_vec(),
+        "Corrupted read should be restored to reference"
+    );
 }

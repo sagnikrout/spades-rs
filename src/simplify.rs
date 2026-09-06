@@ -250,7 +250,10 @@ impl Simplifier {
             let mut used_as_target: hashbrown::HashSet<usize> = hashbrown::HashSet::new();
 
             for (i, u_i) in unitigs.iter().enumerate().take(n) {
-                if u_i.sequence.len() < k1 || used_as_source.contains(&i) || used_as_target.contains(&i) {
+                if u_i.sequence.len() < k1
+                    || used_as_source.contains(&i)
+                    || used_as_target.contains(&i)
+                {
                     continue;
                 }
                 let suffix_i = u_i.sequence[u_i.sequence.len() - k1..].to_vec();
@@ -304,7 +307,8 @@ impl Simplifier {
             }
 
             // Execute all disjoint merges
-            let mut consumed: hashbrown::HashSet<usize> = hashbrown::HashSet::with_capacity(merge_pairs.len());
+            let mut consumed: hashbrown::HashSet<usize> =
+                hashbrown::HashSet::with_capacity(merge_pairs.len());
             for (i, j, is_rc) in merge_pairs {
                 if is_rc {
                     unitigs[j].sequence = Self::revcomp_slice(&unitigs[j].sequence);

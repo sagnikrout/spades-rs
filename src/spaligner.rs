@@ -88,9 +88,21 @@ impl LongReadResolver {
         let seed_k = 15.min(k).max(4);
         let step = 5.min((seed_k / 3).max(1));
         let k1 = k.saturating_sub(1);
-        let min_ov = if unitigs.len() <= 3 { (k1 / 2).max(1) } else { 10 };
-        let min_read_len = if unitigs.len() <= 3 { seed_k * 2 } else { 500.max(seed_k * 2) };
-        let min_span = if unitigs.len() <= 3 { seed_k } else { 150.max(seed_k * 2) };
+        let min_ov = if unitigs.len() <= 3 {
+            (k1 / 2).max(1)
+        } else {
+            10
+        };
+        let min_read_len = if unitigs.len() <= 3 {
+            seed_k * 2
+        } else {
+            500.max(seed_k * 2)
+        };
+        let min_span = if unitigs.len() <= 3 {
+            seed_k
+        } else {
+            150.max(seed_k * 2)
+        };
         let n_unitigs = unitigs.len();
 
         // 1. Calculate expected coverage depth to distinguish repeats from unique contigs
@@ -139,7 +151,10 @@ impl LongReadResolver {
             for i in (0..=(u.sequence.len() - seed_k)).step_by(step) {
                 if let Some(km) = string_to_kmer(&u.sequence[i..i + seed_k], seed_k) {
                     let (can, is_rc) = canonical_kmer_u64(km, seed_k);
-                    seed_to_unitig.entry(can).or_default().push((idx as u32, i as u32, is_rc));
+                    seed_to_unitig
+                        .entry(can)
+                        .or_default()
+                        .push((idx as u32, i as u32, is_rc));
                 }
             }
         }
@@ -202,7 +217,11 @@ impl LongReadResolver {
                             h_count += 1;
                         } else {
                             let span = max_pos - min_pos + seed_k;
-                            let required_span = if is_unique_flank[cur_u] { min_span } else { (min_span / 2).max(seed_k) };
+                            let required_span = if is_unique_flank[cur_u] {
+                                min_span
+                            } else {
+                                (min_span / 2).max(seed_k)
+                            };
                             if h_count >= min_support.min(3) && span >= required_span {
                                 raw_anchors.push(ReadAnchor {
                                     u_idx: cur_u,
@@ -222,7 +241,11 @@ impl LongReadResolver {
                     }
 
                     let span = max_pos - min_pos + seed_k;
-                    let required_span = if is_unique_flank[cur_u] { min_span } else { (min_span / 2).max(seed_k) };
+                    let required_span = if is_unique_flank[cur_u] {
+                        min_span
+                    } else {
+                        (min_span / 2).max(seed_k)
+                    };
                     if h_count >= min_support.min(3) && span >= required_span {
                         raw_anchors.push(ReadAnchor {
                             u_idx: cur_u,
@@ -239,7 +262,8 @@ impl LongReadResolver {
 
                     raw_anchors.sort_by_key(|a| a.start);
 
-                    let mut ordered_anchors: Vec<ReadAnchor> = Vec::with_capacity(raw_anchors.len());
+                    let mut ordered_anchors: Vec<ReadAnchor> =
+                        Vec::with_capacity(raw_anchors.len());
                     for a in raw_anchors {
                         if let Some(last) = ordered_anchors.last_mut() {
                             if last.u_idx == a.u_idx && a.start.saturating_sub(last.end) <= 1500 {
@@ -262,6 +286,7 @@ impl LongReadResolver {
                         }
 
                         let mut reps_list = Vec::new();
+                        #[allow(clippy::needless_range_loop)]
                         for j in (i + 1)..n_anchors {
                             let cand = &ordered_anchors[j];
                             if cand.u_idx == left_anchor.u_idx {
@@ -322,9 +347,10 @@ impl LongReadResolver {
             .filter(|(_, obs)| obs.len() >= min_support)
             .collect();
 
-        sorted_bridges.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+        sorted_bridges.sort_by_key(|a| std::cmp::Reverse(a.1.len()));
 
         let total_ports = 2 * n_unitigs;
+        #[allow(clippy::type_complexity)]
         let mut partner: Vec<Option<(usize, Vec<(usize, bool)>, usize)>> = vec![None; total_ports];
         let mut dsu = DisjointSet::new(n_unitigs);
         let mut chained_bridges = 0;
@@ -355,7 +381,8 @@ impl LongReadResolver {
             }
 
             partner[p_l] = Some((p_r, reps.clone(), sup));
-            let reps_rc: Vec<(usize, bool)> = reps.iter().rev().map(|&(u, rev)| (u, !rev)).collect();
+            let reps_rc: Vec<(usize, bool)> =
+                reps.iter().rev().map(|&(u, rev)| (u, !rev)).collect();
             partner[p_r] = Some((p_l, reps_rc, sup));
             chained_bridges += 1;
         }
@@ -419,7 +446,8 @@ impl LongReadResolver {
                     unitigs[first_u].sequence.clone()
                 };
 
-                let mut cov_sum = unitigs[first_u].mean_coverage * unitigs[first_u].sequence.len() as f64;
+                let mut cov_sum =
+                    unitigs[first_u].mean_coverage * unitigs[first_u].sequence.len() as f64;
                 let mut total_bp = unitigs[first_u].sequence.len();
                 let mut total_kmers = unitigs[first_u].kmers_count;
 
@@ -470,7 +498,11 @@ impl LongReadResolver {
                 stitched_contigs.push(Unitig {
                     id: stitched_contigs.len(),
                     sequence: seq,
-                    mean_coverage: if total_bp > 0 { cov_sum / total_bp as f64 } else { median_cov },
+                    mean_coverage: if total_bp > 0 {
+                        cov_sum / total_bp as f64
+                    } else {
+                        median_cov
+                    },
                     kmers_count: total_kmers,
                 });
             }

@@ -66,6 +66,7 @@ impl PairedInfoIndex {
         let pair_indices: Vec<usize> = (0..num_pairs).collect();
 
         // 2. Map paired reads in parallel chunks
+        #[allow(clippy::type_complexity)]
         let thread_results: Vec<(Vec<f64>, HashMap<(usize, usize), u32>)> = pair_indices
             .par_chunks(4096)
             .map(|chunk| {
@@ -170,6 +171,7 @@ impl PairedInfoIndex {
         let num_pairs = n1.min(n2);
         let pair_indices: Vec<usize> = (0..num_pairs).collect();
 
+        #[allow(clippy::type_complexity)]
         let thread_results: Vec<(Vec<f64>, HashMap<(usize, usize), u32>)> = pair_indices
             .par_chunks(4096)
             .map(|chunk| {

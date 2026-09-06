@@ -61,7 +61,12 @@ fn test_revcomp_u64_invariance() {
 
         // String roundtrip
         let decoded = kmer_to_string(kmer, k);
-        assert_eq!(decoded.as_bytes(), &seq[..], "Failed string decode for k={}", k);
+        assert_eq!(
+            decoded.as_bytes(),
+            &seq[..],
+            "Failed string decode for k={}",
+            k
+        );
     }
 }
 
@@ -79,11 +84,19 @@ fn test_canonical_kmer_u64_idempotence() {
         let kmer = string_to_kmer(&seq, k).unwrap();
         let (can1, is_rc1) = canonical_kmer_u64(kmer, k);
         let (can2, _) = canonical_kmer_u64(can1, k);
-        assert_eq!(can1, can2, "Canonical representation must be idempotent for k={}", k);
+        assert_eq!(
+            can1, can2,
+            "Canonical representation must be idempotent for k={}",
+            k
+        );
 
         let rc = revcomp_kmer_u64(kmer, k);
         let (can_from_rc, is_rc2) = canonical_kmer_u64(rc, k);
-        assert_eq!(can1, can_from_rc, "Canonical must be identical from forward or RC for k={}", k);
+        assert_eq!(
+            can1, can_from_rc,
+            "Canonical must be identical from forward or RC for k={}",
+            k
+        );
         if kmer != rc {
             assert_ne!(is_rc1, is_rc2, "One must be RC and one forward");
         }
@@ -106,14 +119,27 @@ fn test_kmer256_large_k_invariance() {
         let kmer = Kmer256::from_bytes(&seq, k).expect("valid Kmer256");
         let rc = kmer.revcomp(k);
         let rc_rc = rc.revcomp(k);
-        assert_eq!(kmer, rc_rc, "Double revcomp failed for Kmer256 with k={}", k);
+        assert_eq!(
+            kmer, rc_rc,
+            "Double revcomp failed for Kmer256 with k={}",
+            k
+        );
 
         let (can, _) = kmer.canonical(k);
         let (can_rc, _) = rc.canonical(k);
-        assert_eq!(can, can_rc, "Canonical mismatch between fwd and rc in Kmer256 for k={}", k);
+        assert_eq!(
+            can, can_rc,
+            "Canonical mismatch between fwd and rc in Kmer256 for k={}",
+            k
+        );
 
         let decoded = kmer.to_string(k);
-        assert_eq!(decoded.as_bytes(), seq.as_slice(), "String round-trip failed in Kmer256 for k={}", k);
+        assert_eq!(
+            decoded.as_bytes(),
+            seq.as_slice(),
+            "String round-trip failed in Kmer256 for k={}",
+            k
+        );
     }
 }
 

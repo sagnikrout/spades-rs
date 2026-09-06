@@ -126,19 +126,19 @@ impl ExSPAnder {
         // Disambiguate incoming repeat collisions:
         // If multiple unitigs point to the same target, evaluate paired-end support
         let mut in_candidates: Vec<Vec<(usize, bool)>> = vec![Vec::new(); n];
-        for i in 0..n {
-            if let Some((next_node, is_rc)) = resolved_adj[i] {
+        for (i, &adj) in resolved_adj.iter().enumerate() {
+            if let Some((next_node, is_rc)) = adj {
                 in_candidates[next_node].push((i, is_rc));
             }
         }
 
-        for target in 0..n {
-            if in_candidates[target].len() > 1 {
+        for (target, candidates) in in_candidates.iter().enumerate() {
+            if candidates.len() > 1 {
                 let mut best_src = None;
                 let mut best_sup = 0u32;
                 let mut second_sup = 0u32;
 
-                for &(src, _) in &in_candidates[target] {
+                for &(src, _) in candidates {
                     let sup = paired_info.get_support(src, target);
                     if sup > best_sup {
                         second_sup = best_sup;
@@ -150,14 +150,15 @@ impl ExSPAnder {
                 }
 
                 let winner = if best_sup >= self.min_support
-                    && (second_sup == 0 || best_sup as f64 / second_sup as f64 >= self.confidence_ratio)
+                    && (second_sup == 0
+                        || best_sup as f64 / second_sup as f64 >= self.confidence_ratio)
                 {
                     best_src
                 } else {
                     None
                 };
 
-                for &(src, _) in &in_candidates[target] {
+                for &(src, _) in candidates {
                     if Some(src) != winner {
                         resolved_adj[src] = None;
                     }
@@ -167,8 +168,8 @@ impl ExSPAnder {
 
         // Compute final in-degrees to identify true path sources
         let mut final_in_degree = vec![0usize; n];
-        for i in 0..n {
-            if let Some((next_node, _)) = resolved_adj[i] {
+        for &adj in &resolved_adj {
+            if let Some((next_node, _)) = adj {
                 final_in_degree[next_node] += 1;
             }
         }
@@ -214,8 +215,7 @@ impl ExSPAnder {
 
                 if node_seq.len() > k1 {
                     seq.extend_from_slice(&node_seq[k1..]);
-                    total_cov +=
-                        unitigs[node].mean_coverage * (node_seq.len() - k1) as f64;
+                    total_cov += unitigs[node].mean_coverage * (node_seq.len() - k1) as f64;
                     total_len += node_seq.len() - k1;
                 }
             }

@@ -121,7 +121,11 @@ fn test_stitch_unitigs_linear_chain() {
     };
 
     let stitched = simplifier.stitch_unitigs(vec![u0, u1, u2]);
-    assert_eq!(stitched.len(), 1, "Linear chain should stitch into exactly 1 unitig");
+    assert_eq!(
+        stitched.len(),
+        1,
+        "Linear chain should stitch into exactly 1 unitig"
+    );
     assert_eq!(stitched[0].sequence, b"TTTAACGTCCATGAAA");
 }
 

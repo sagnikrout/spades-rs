@@ -37,7 +37,10 @@ impl Polisher {
 
         // 1. Build a global k-mer lookup table for all contigs:
         // kmer -> (contig_idx, offset, is_rc)
-        let total_kmers: usize = contigs.iter().map(|c| c.sequence.len().saturating_sub(k - 1)).sum();
+        let total_kmers: usize = contigs
+            .iter()
+            .map(|c| c.sequence.len().saturating_sub(k - 1))
+            .sum();
         let mut kmer_pos: HashMap<u64, (u32, u32, bool)> = HashMap::with_capacity(total_kmers);
 
         for (c_idx, contig) in contigs.iter().enumerate() {
@@ -48,7 +51,9 @@ impl Polisher {
             for i in 0..=(len - k) {
                 if let Some(km) = string_to_kmer(&contig.sequence[i..i + k], k) {
                     let (can, is_rc) = canonical_kmer_u64(km, k);
-                    kmer_pos.entry(can).or_insert((c_idx as u32, i as u32, is_rc));
+                    kmer_pos
+                        .entry(can)
+                        .or_insert((c_idx as u32, i as u32, is_rc));
                 }
             }
         }
@@ -58,12 +63,14 @@ impl Polisher {
             .iter()
             .map(|c| {
                 (0..c.sequence.len())
-                    .map(|_| [
-                        AtomicU32::new(0),
-                        AtomicU32::new(0),
-                        AtomicU32::new(0),
-                        AtomicU32::new(0),
-                    ])
+                    .map(|_| {
+                        [
+                            AtomicU32::new(0),
+                            AtomicU32::new(0),
+                            AtomicU32::new(0),
+                            AtomicU32::new(0),
+                        ]
+                    })
                     .collect()
             })
             .collect();
@@ -121,6 +128,7 @@ impl Polisher {
         let mut total_corrections = 0;
         for (c_idx, contig) in contigs.iter_mut().enumerate() {
             let len = contig.sequence.len();
+            #[allow(clippy::needless_range_loop)]
             for pos in 0..len {
                 let counts = &tallies[c_idx][pos];
                 let c0 = counts[0].load(Ordering::Relaxed);
@@ -165,7 +173,10 @@ impl Polisher {
             return (contigs, 0);
         }
 
-        let total_kmers: usize = contigs.iter().map(|c| c.sequence.len().saturating_sub(k - 1)).sum();
+        let total_kmers: usize = contigs
+            .iter()
+            .map(|c| c.sequence.len().saturating_sub(k - 1))
+            .sum();
         let mut kmer_pos: HashMap<u64, (u32, u32, bool)> = HashMap::with_capacity(total_kmers);
 
         for (c_idx, contig) in contigs.iter().enumerate() {
@@ -176,7 +187,9 @@ impl Polisher {
             for i in 0..=(len - k) {
                 if let Some(km) = string_to_kmer(&contig.sequence[i..i + k], k) {
                     let (can, is_rc) = canonical_kmer_u64(km, k);
-                    kmer_pos.entry(can).or_insert((c_idx as u32, i as u32, is_rc));
+                    kmer_pos
+                        .entry(can)
+                        .or_insert((c_idx as u32, i as u32, is_rc));
                 }
             }
         }
@@ -185,12 +198,14 @@ impl Polisher {
             .iter()
             .map(|c| {
                 (0..c.sequence.len())
-                    .map(|_| [
-                        AtomicU32::new(0),
-                        AtomicU32::new(0),
-                        AtomicU32::new(0),
-                        AtomicU32::new(0),
-                    ])
+                    .map(|_| {
+                        [
+                            AtomicU32::new(0),
+                            AtomicU32::new(0),
+                            AtomicU32::new(0),
+                            AtomicU32::new(0),
+                        ]
+                    })
                     .collect()
             })
             .collect();
@@ -248,6 +263,7 @@ impl Polisher {
         let mut total_corrections = 0;
         for (c_idx, contig) in contigs.iter_mut().enumerate() {
             let len = contig.sequence.len();
+            #[allow(clippy::needless_range_loop)]
             for pos in 0..len {
                 let counts = &tallies[c_idx][pos];
                 let c0 = counts[0].load(Ordering::Relaxed);

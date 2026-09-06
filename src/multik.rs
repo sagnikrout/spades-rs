@@ -90,7 +90,11 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
             is_rna: config.is_rna,
             is_sc: config.is_sc,
             polish: config.polish && is_last_step, // Polish on final assembly
-            long_reads: if is_last_step { config.long_reads.clone() } else { None },
+            long_reads: if is_last_step {
+                config.long_reads.clone()
+            } else {
+                None
+            },
             prior_contigs: prior_contigs.clone(),
             skip_repeat_resolution: !is_last_step,
             memory_limits: config.memory_limits,
@@ -99,7 +103,11 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
         let result = run_assembly_with_packed_reads(&packed, &sub_config)?;
         println!(
             "  ✓ Step k={} completed: {} contigs, max length {} bp, N50 {} bp (Elapsed: {:.3}s)",
-            k, result.stats.total_contigs, result.stats.max_contig_length, result.stats.n50, result.elapsed_secs
+            k,
+            result.stats.total_contigs,
+            result.stats.max_contig_length,
+            result.stats.n50,
+            result.elapsed_secs
         );
 
         // Save high-confidence intermediate unitigs from earlier steps for potential rescue
@@ -168,7 +176,9 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
                 "  [Multi-K Rescue] Rescued {} valid unitigs from lower-k steps dropped at final k",
                 rescued_count
             );
-            result.contigs.sort_by_key(|u| std::cmp::Reverse(u.sequence.len()));
+            result
+                .contigs
+                .sort_by_key(|u| std::cmp::Reverse(u.sequence.len()));
             result.stats = crate::assemble::calculate_stats(&result.contigs);
         }
     }

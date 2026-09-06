@@ -12,8 +12,8 @@ use hashbrown::{HashMap, HashSet};
 /// An oriented k-mer in the bidirected de Bruijn graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct OrientedKmer {
-    pub kmer: Kmer256,   // Canonical k-mer
-    pub is_rc: bool, // false = Forward, true = Reverse Complement
+    pub kmer: Kmer256, // Canonical k-mer
+    pub is_rc: bool,   // false = Forward, true = Reverse Complement
 }
 
 impl OrientedKmer {
@@ -51,7 +51,11 @@ pub struct CompactedGraph {
 
 impl CompactedGraph {
     /// Builds maximal unitigs from the solid canonical k-mers.
-    pub fn build(k: usize, solid_kmers: &HashSet<Kmer256>, kmer_cov: &HashMap<Kmer256, u32>) -> Self {
+    pub fn build(
+        k: usize,
+        solid_kmers: &HashSet<Kmer256>,
+        kmer_cov: &HashMap<Kmer256, u32>,
+    ) -> Self {
         // Helper closures for getting successors and predecessors
         let get_successors = |ok: OrientedKmer| -> Vec<(OrientedKmer, u8)> {
             let s = ok.explicit_seq(k);

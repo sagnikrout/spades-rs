@@ -1,7 +1,7 @@
 //! Contiguous 2-bit packed read store for high-scale memory optimization.
 //!
-//! Packs 4 DNA bases per byte (A=00, C=01, G=10, T=11). 
-//! Stores millions of reads in a single contiguous buffer to eliminate 
+//! Packs 4 DNA bases per byte (A=00, C=01, G=10, T=11).
+//! Stores millions of reads in a single contiguous buffer to eliminate
 //! multi-gigabyte heap fragmentation and glibc arena bloat.
 
 use crate::dna::{base_to_2bit, bit2_to_base};
@@ -27,7 +27,7 @@ impl PackedReads {
     /// Creates an empty PackedReads store with preallocated capacity.
     pub fn with_capacity(num_reads: usize, total_bases: usize) -> Self {
         Self {
-            data: Vec::with_capacity((total_bases + 3) / 4),
+            data: Vec::with_capacity(total_bases.div_ceil(4)),
             offsets: Vec::with_capacity(num_reads),
             lengths: Vec::with_capacity(num_reads),
             pe_boundary: 0,
@@ -188,7 +188,7 @@ impl PackedReads {
         buf.reserve(len);
 
         let start_byte = self.offsets[idx];
-        let num_bytes = (len + 3) / 4;
+        let num_bytes = len.div_ceil(4);
         let slice = &self.data[start_byte..start_byte + num_bytes];
         let mut rem = len;
 

@@ -192,11 +192,7 @@ pub fn run_assembly_with_loaded_reads(
                         break;
                     }
                 }
-                let cutoff = if found_valley {
-                    valley
-                } else {
-                    2u32
-                };
+                let cutoff = if found_valley { valley } else { 2u32 };
                 if cutoff > 2 {
                     println!(
                         "  [Auto-Cutoff] Robust noise valley detected at {}x (Top: {}x)",
@@ -258,24 +254,24 @@ pub fn run_assembly_with_loaded_reads(
     );
 
     println!("─── [Stage 6] ExSPAnder Repeat Resolution (Paired-End Linkages) ───");
-    let contigs = if !config.skip_repeat_resolution && pe_reads1.is_some() && pe_reads2.is_some() {
-        let (r1, r2) = (pe_reads1.unwrap(), pe_reads2.unwrap());
-        let paired_info =
-            crate::paired_info::PairedInfoIndex::build(k, &simplified_contigs, r1, r2);
-        println!(
-            "  Paired library estimated insert size: {:.1} ± {:.1} bp",
-            paired_info.mean_insert_size, paired_info.insert_size_stdev
-        );
-        let expander = crate::expander::ExSPAnder::default();
-        let resolved = expander.resolve_repeats(k, simplified_contigs, &paired_info);
-        println!(
-            "  Contigs after repeat resolution: {} (Elapsed: {:.3}s)",
-            resolved.len(),
-            start_time.elapsed().as_secs_f64()
-        );
-        resolved
-    } else {
-        simplified_contigs
+    let contigs = match (pe_reads1, pe_reads2) {
+        (Some(r1), Some(r2)) if !config.skip_repeat_resolution => {
+            let paired_info =
+                crate::paired_info::PairedInfoIndex::build(k, &simplified_contigs, r1, r2);
+            println!(
+                "  Paired library estimated insert size: {:.1} ± {:.1} bp",
+                paired_info.mean_insert_size, paired_info.insert_size_stdev
+            );
+            let expander = crate::expander::ExSPAnder::default();
+            let resolved = expander.resolve_repeats(k, simplified_contigs, &paired_info);
+            println!(
+                "  Contigs after repeat resolution: {} (Elapsed: {:.3}s)",
+                resolved.len(),
+                start_time.elapsed().as_secs_f64()
+            );
+            resolved
+        }
+        _ => simplified_contigs,
     };
 
     let contigs = if !config.skip_repeat_resolution {
@@ -317,12 +313,12 @@ pub fn run_assembly_with_loaded_reads(
     };
 
     println!("─── [Stage 7] Scaffolding Across Unresolved Gaps ───");
-    let scaffolds = if !config.skip_repeat_resolution && pe_reads1.is_some() && pe_reads2.is_some() {
-        let (r1, r2) = (pe_reads1.unwrap(), pe_reads2.unwrap());
-        let paired_info = crate::paired_info::PairedInfoIndex::build(k, &contigs, r1, r2);
-        crate::scaffold::Scaffolder::default().build_scaffolds(&contigs, &paired_info)
-    } else {
-        contigs.clone()
+    let scaffolds = match (pe_reads1, pe_reads2) {
+        (Some(r1), Some(r2)) if !config.skip_repeat_resolution => {
+            let paired_info = crate::paired_info::PairedInfoIndex::build(k, &contigs, r1, r2);
+            crate::scaffold::Scaffolder::default().build_scaffolds(&contigs, &paired_info)
+        }
+        _ => contigs.clone(),
     };
     println!(
         "  Scaffolds generated: {} (Elapsed: {:.3}s)",
@@ -431,9 +427,8 @@ pub fn run_assembly_with_packed_reads(
         .collect();
 
     read_indices.par_chunks(chunk_size).for_each(|chunk| {
-        let mut thread_buffers: Vec<Vec<Kmer256>> = (0..NUM_SHARDS)
-            .map(|_| Vec::with_capacity(256))
-            .collect();
+        let mut thread_buffers: Vec<Vec<Kmer256>> =
+            (0..NUM_SHARDS).map(|_| Vec::with_capacity(256)).collect();
         let mut buf = Vec::with_capacity(512);
 
         for &idx in chunk {
@@ -532,11 +527,7 @@ pub fn run_assembly_with_packed_reads(
                         break;
                     }
                 }
-                let cutoff = if found_valley {
-                    valley
-                } else {
-                    2u32
-                };
+                let cutoff = if found_valley { valley } else { 2u32 };
                 if cutoff > 2 {
                     println!(
                         "  [Auto-Cutoff] Robust noise valley detected at {}x (Top: {}x)",
@@ -657,7 +648,8 @@ pub fn run_assembly_with_packed_reads(
 
     println!("─── [Stage 7] Scaffolding Across Unresolved Gaps ───");
     let scaffolds = if !config.skip_repeat_resolution && packed.pe_boundary > 0 {
-        let paired_info = crate::paired_info::PairedInfoIndex::build_from_packed(k, &contigs, packed);
+        let paired_info =
+            crate::paired_info::PairedInfoIndex::build_from_packed(k, &contigs, packed);
         crate::scaffold::Scaffolder::default().build_scaffolds(&contigs, &paired_info)
     } else {
         contigs.clone()

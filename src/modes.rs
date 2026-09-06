@@ -41,7 +41,7 @@ impl PlasmidDetector {
         for u in unitigs {
             let len = u.sequence.len();
             // Check topological circularity (matching prefix and suffix overlap of length >= 15 up to k-1)
-            let is_circular = if len >= 20 && len <= 450_000 {
+            let is_circular = if (20..=450_000).contains(&len) {
                 let max_overlap = k1.min(len / 2);
                 let mut circular = false;
                 for check_k in (15..=max_overlap).rev() {
@@ -55,7 +55,8 @@ impl PlasmidDetector {
                 false
             };
 
-            let is_high_copy = len <= 350_000 && u.mean_coverage >= (median_cov * self.copy_number_threshold);
+            let is_high_copy =
+                len <= 350_000 && u.mean_coverage >= (median_cov * self.copy_number_threshold);
 
             // A plasmid candidate is circular or significantly high-copy
             if (is_circular || (is_high_copy && len >= self.min_plasmid_len))

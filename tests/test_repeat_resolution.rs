@@ -66,7 +66,10 @@ fn test_expander_bifurcation_resolution() {
     // Should resolve and stitch 0 -> 1 into "TTTTACGTAAAACGCG", leaving u2 as a separate unitig
     assert_eq!(resolved.len(), 2);
     let has_stitched = resolved.iter().any(|u| u.sequence == b"TTTTACGTAAAACGCG");
-    assert!(has_stitched, "Unitig 0 and 1 should be stitched by ExSPAnder");
+    assert!(
+        has_stitched,
+        "Unitig 0 and 1 should be stitched by ExSPAnder"
+    );
 }
 
 #[test]
@@ -104,7 +107,7 @@ fn test_spaligner_repeat_unrolling_two_copies() {
     let mut repeat_seq = make_seq(999, repeat_len);
 
     let junction_start = b"GATTACAGATTACAGATTAC"; // 20 bp (k-1)
-    let junction_end = b"TGCAATGCAATGCAATGCAA";   // 20 bp (k-1)
+    let junction_end = b"TGCAATGCAATGCAATGCAA"; // 20 bp (k-1)
 
     // Ensure exact (k-1)-mer overlaps at junctions
     flank_a_seq[flank_len - 20..].copy_from_slice(junction_start);

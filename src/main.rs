@@ -8,7 +8,9 @@ use std::time::Instant;
 #[derive(Parser, Debug)]
 #[command(name = "spades-rs")]
 #[command(about = "A Rust-based de novo genome assembler designed for low-memory environments")]
-#[command(after_help = "Citations:\n  SPAdes: Bankevich et al. (2012) J Comput Biol 19(5):455-477\n  Protocol: Prjibelski et al. (2020) Curr Protoc Bioinformatics 70(1):e102\n  See README.md for full citations & BibTeX entries.")]
+#[command(
+    after_help = "Citations:\n  SPAdes: Bankevich et al. (2012) J Comput Biol 19(5):455-477\n  Protocol: Prjibelski et al. (2020) Curr Protoc Bioinformatics 70(1):e102\n  See README.md for full citations & BibTeX entries."
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -259,27 +261,26 @@ fn main() -> anyhow::Result<()> {
             println!("  Total Wall-Clock:     {:.4} seconds", result.elapsed_secs);
             println!("-----------------------------------------------------------");
 
-            let (contig_path, scaffold_path, gfa_path, plasmid_path) = if output.is_dir()
-                || output.extension().is_none()
-            {
-                std::fs::create_dir_all(&output)?;
-                (
-                    output.join("contigs.fasta"),
-                    output.join("scaffolds.fasta"),
-                    output.join("assembly_graph.gfa"),
-                    output.join("plasmids.fasta"),
-                )
-            } else {
-                if let Some(parent) = output.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                (
-                    output.clone(),
-                    output.with_file_name("scaffolds.fasta"),
-                    output.with_extension("gfa"),
-                    output.with_file_name("plasmids.fasta"),
-                )
-            };
+            let (contig_path, scaffold_path, gfa_path, plasmid_path) =
+                if output.is_dir() || output.extension().is_none() {
+                    std::fs::create_dir_all(&output)?;
+                    (
+                        output.join("contigs.fasta"),
+                        output.join("scaffolds.fasta"),
+                        output.join("assembly_graph.gfa"),
+                        output.join("plasmids.fasta"),
+                    )
+                } else {
+                    if let Some(parent) = output.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    (
+                        output.clone(),
+                        output.with_file_name("scaffolds.fasta"),
+                        output.with_extension("gfa"),
+                        output.with_file_name("plasmids.fasta"),
+                    )
+                };
 
             write_contigs_fasta(&result.contigs, &contig_path)?;
             println!("  Contigs successfully exported to: {:?}", contig_path);

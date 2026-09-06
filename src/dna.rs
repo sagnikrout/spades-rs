@@ -127,7 +127,7 @@ pub fn revcomp_kmer_u128(mut kmer: u128, k: usize) -> u128 {
         | ((kmer & 0x0000FFFF0000FFFF0000FFFF0000FFFF) << 16);
     kmer = ((kmer >> 32) & 0x00000000FFFFFFFF00000000FFFFFFFF)
         | ((kmer & 0x00000000FFFFFFFF00000000FFFFFFFF) << 32);
-    kmer = (kmer >> 64) | (kmer << 64);
+    kmer = kmer.rotate_left(64);
 
     if k == 64 {
         kmer
@@ -161,9 +161,16 @@ impl Kmer256 {
             let hi_rc = revcomp_kmer_u128(self.1, k2);
 
             let shift_lo = 2 * (64 - k2);
-            let rc_lo = if shift_lo >= 128 { 0 } else { hi_rc << shift_lo }
-                | if k2 >= 64 { 0 } else { lo_rc >> (2 * k2) };
-            let mask_hi = if k2 >= 64 { u128::MAX } else { (1u128 << (2 * k2)) - 1 };
+            let rc_lo = if shift_lo >= 128 {
+                0
+            } else {
+                hi_rc << shift_lo
+            } | if k2 >= 64 { 0 } else { lo_rc >> (2 * k2) };
+            let mask_hi = if k2 >= 64 {
+                u128::MAX
+            } else {
+                (1u128 << (2 * k2)) - 1
+            };
             let rc_hi = lo_rc & mask_hi;
             Kmer256(rc_lo, rc_hi)
         }
@@ -183,11 +190,19 @@ impl Kmer256 {
     pub fn extend_right(&self, b: u8, k: usize) -> Self {
         debug_assert!(k > 0 && k <= 128);
         if k <= 64 {
-            let mask = if k == 64 { u128::MAX } else { (1u128 << (2 * k)) - 1 };
+            let mask = if k == 64 {
+                u128::MAX
+            } else {
+                (1u128 << (2 * k)) - 1
+            };
             Kmer256(((self.0 << 2) | (b as u128)) & mask, 0)
         } else {
             let k2 = k - 64;
-            let mask_hi = if k2 == 64 { u128::MAX } else { (1u128 << (2 * k2)) - 1 };
+            let mask_hi = if k2 == 64 {
+                u128::MAX
+            } else {
+                (1u128 << (2 * k2)) - 1
+            };
             let s64 = (self.1 >> (2 * (k2 - 1))) & 3;
             let new_lo = (self.0 << 2) | s64;
             let new_hi = ((self.1 << 2) | (b as u128)) & mask_hi;
@@ -202,7 +217,11 @@ impl Kmer256 {
             Kmer256((self.0 >> 2) | ((a as u128) << (2 * (k - 1))), 0)
         } else {
             let k2 = k - 64;
-            let mask_hi = if k2 == 64 { u128::MAX } else { (1u128 << (2 * k2)) - 1 };
+            let mask_hi = if k2 == 64 {
+                u128::MAX
+            } else {
+                (1u128 << (2 * k2)) - 1
+            };
             let s63 = self.0 & 3;
             let new_lo = (self.0 >> 2) | ((a as u128) << 126);
             let new_hi = ((self.1 >> 2) | (s63 << (2 * (k2 - 1)))) & mask_hi;
@@ -309,7 +328,7 @@ mod tests {
     fn test_kmer256_roundtrip_and_revcomp() {
         let template = "ATGCGATCGATCGATAGCTAGCTAGCTAGCTAAGCTAGCTAGCTAGCTAATGCGATCGATCGATAGCTAGCTAGCTAGCTAAGCTAGCTAGCTAGCTAATGCGATCGATCGATAGCTAGCTAGCTAGCTAAGCTAGCTAGCTAGCTAATGCGATCGATCGATAGCTAGCTAGCTAGCTAAGCTAGCTAGCTAGCTA";
         for &k in &[21, 33, 55, 64, 77, 99, 127] {
-            let seq = template[..k].as_bytes();
+            let seq = &template.as_bytes()[..k];
             let km = Kmer256::from_bytes(seq, k).expect("encoding failed");
             let s_dec = km.to_string(k);
             assert_eq!(std::str::from_utf8(seq).unwrap(), s_dec);

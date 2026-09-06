@@ -97,7 +97,11 @@ impl LocalGapCloser {
         let mut visited = hashbrown::HashSet::new();
         visited.insert(cur);
 
-        let mask = if k >= 32 { !0u64 } else { (1u64 << (2 * (k - 1))) - 1 };
+        let mask = if k >= 32 {
+            !0u64
+        } else {
+            (1u64 << (2 * (k - 1))) - 1
+        };
 
         for _ in 0..self.max_gap_len {
             if cur == end_kmer {
@@ -203,7 +207,8 @@ impl Scaffolder {
                 let next_seq = &contigs[next_idx].sequence;
                 if let Some(merged) = gap_closer.close_gap(&current_seq, next_seq, &[]) {
                     let added_len = merged.len().saturating_sub(current_seq.len());
-                    current_cov += contigs[next_idx].mean_coverage * contigs[next_idx].sequence.len() as f64;
+                    current_cov +=
+                        contigs[next_idx].mean_coverage * contigs[next_idx].sequence.len() as f64;
                     current_len += added_len;
                     current_seq = merged;
                 } else {
@@ -222,7 +227,11 @@ impl Scaffolder {
             scaffolds.push(Unitig {
                 id: scaffold_id,
                 sequence: current_seq,
-                mean_coverage: if current_len > 0 { current_cov / current_len as f64 } else { 10.0 },
+                mean_coverage: if current_len > 0 {
+                    current_cov / current_len as f64
+                } else {
+                    10.0
+                },
                 kmers_count: current_len,
             });
             scaffold_id += 1;

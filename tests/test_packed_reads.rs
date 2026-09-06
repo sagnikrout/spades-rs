@@ -25,7 +25,13 @@ fn test_packed_reads_all_modulo4_lengths() {
     let mut buf = Vec::new();
     for (i, expected) in expected_reads.iter().enumerate() {
         store.get_read(i, &mut buf);
-        assert_eq!(&buf, expected, "Mismatch at read index {} of length {}", i, expected.len());
+        assert_eq!(
+            &buf,
+            expected,
+            "Mismatch at read index {} of length {}",
+            i,
+            expected.len()
+        );
     }
 }
 
@@ -62,7 +68,11 @@ fn test_packed_reads_synthetic_workload() {
     let mut scratch = Vec::new();
     for (idx, expected) in expected_reads.iter().enumerate() {
         store.get_read(idx, &mut scratch);
-        assert_eq!(&scratch, expected, "Data corruption detected in read #{}", idx);
+        assert_eq!(
+            &scratch, expected,
+            "Data corruption detected in read #{}",
+            idx
+        );
     }
 }
 
