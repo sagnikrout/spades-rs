@@ -130,13 +130,7 @@ pub fn run_assembly_with_loaded_reads(
 
     // Drop filter immediately to free memory shield
     drop(filter);
-    #[cfg(target_os = "linux")]
-    unsafe {
-        extern "C" {
-            fn malloc_trim(pad: usize) -> i32;
-        }
-        malloc_trim(0);
-    }
+    crate::memory::trim_memory();
     if let Some(ref limits) = config.memory_limits {
         if let Err(e) = limits.check_headroom() {
             eprintln!("  [Memory Governor Warning] {}", e);
@@ -234,13 +228,7 @@ pub fn run_assembly_with_loaded_reads(
     let cdbg = CompactedGraph::build(k, &solid_kmers, &global_counts);
     drop(solid_kmers);
     drop(global_counts);
-    #[cfg(target_os = "linux")]
-    unsafe {
-        extern "C" {
-            fn malloc_trim(pad: usize) -> i32;
-        }
-        malloc_trim(0);
-    }
+    crate::memory::trim_memory();
     println!(
         "  Raw unitigs constructed: {} (Elapsed: {:.3}s)",
         cdbg.unitigs.len(),
@@ -483,13 +471,7 @@ pub fn run_assembly_with_packed_reads(
 
     // Drop filter immediately
     drop(filter);
-    #[cfg(target_os = "linux")]
-    unsafe {
-        extern "C" {
-            fn malloc_trim(pad: usize) -> i32;
-        }
-        malloc_trim(0);
-    }
+    crate::memory::trim_memory();
     if let Some(ref limits) = config.memory_limits {
         if let Err(e) = limits.check_headroom() {
             eprintln!("  [Memory Governor Warning] {}", e);
@@ -586,13 +568,7 @@ pub fn run_assembly_with_packed_reads(
     let cdbg = CompactedGraph::build(k, &solid_kmers, &global_counts);
     drop(solid_kmers);
     drop(global_counts);
-    #[cfg(target_os = "linux")]
-    unsafe {
-        extern "C" {
-            fn malloc_trim(pad: usize) -> i32;
-        }
-        malloc_trim(0);
-    }
+    crate::memory::trim_memory();
     println!(
         "  Raw unitigs constructed: {} (Elapsed: {:.3}s)",
         cdbg.unitigs.len(),

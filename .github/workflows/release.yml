@@ -20,22 +20,22 @@ jobs:
           # Linux x86_64 statically linked (musl) - runs anywhere
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            artifact_name: intelligent-pascal-linux-x86_64-musl
+            artifact_name: spades-rs-linux-x86_64-musl
             use_cross: true
           # Linux aarch64 (ARM64)
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            artifact_name: intelligent-pascal-linux-arm64
+            artifact_name: spades-rs-linux-arm64
             use_cross: true
           # macOS Apple Silicon (M1/M2/M3)
           - os: macos-latest
             target: aarch64-apple-darwin
-            artifact_name: intelligent-pascal-macos-arm64
+            artifact_name: spades-rs-macos-arm64
             use_cross: false
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: intelligent-pascal-windows-x86_64.exe
+            artifact_name: spades-rs-windows-x86_64.exe
             use_cross: false
 
     steps:
@@ -45,7 +45,7 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+            targets: ${{ matrix.target }}
 
       - name: Install cross (if needed)
         if: matrix.use_cross
@@ -63,9 +63,9 @@ jobs:
       - name: Prepare binary artifact
         shell: bash
         run: |
-          BIN_PATH="target/${{ matrix.target }}/release/intelligent-pascal"
+          BIN_PATH="target/${{ matrix.target }}/release/spades-rs"
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            BIN_PATH="target/${{ matrix.target }}/release/intelligent-pascal.exe"
+            BIN_PATH="target/${{ matrix.target }}/release/spades-rs.exe"
             cp "$BIN_PATH" "${{ matrix.artifact_name }}"
           else
             strip "$BIN_PATH" || true

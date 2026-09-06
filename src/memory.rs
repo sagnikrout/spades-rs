@@ -105,6 +105,18 @@ impl MemoryLimits {
     }
 }
 
+/// Trims the process heap back to the OS if supported (glibc Linux).
+#[inline]
+pub fn trim_memory() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    unsafe {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        malloc_trim(0);
+    }
+}
+
 fn detect_system_memory() -> (usize, usize) {
     // 1. Try /proc/meminfo (Linux / WSL)
     if let Ok(content) = fs::read_to_string("/proc/meminfo") {

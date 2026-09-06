@@ -95,7 +95,7 @@ enum Commands {
 }
 
 fn main() -> anyhow::Result<()> {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
     unsafe {
         extern "C" {
             fn mallopt(param: i32, value: i32) -> i32;

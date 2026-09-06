@@ -114,14 +114,7 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
         // Forward assembled unitigs into next step
         prior_contigs = Some(result.contigs.iter().map(|u| u.sequence.clone()).collect());
         final_result = Some(result);
-
-        #[cfg(target_os = "linux")]
-        unsafe {
-            extern "C" {
-                fn malloc_trim(pad: usize) -> i32;
-            }
-            malloc_trim(0);
-        }
+        crate::memory::trim_memory();
     }
 
     let mut result = final_result.expect("At least one k-mer must be specified");
