@@ -484,3 +484,6 @@ The mathematical foundations, graph simplification heuristics, repeat resolution
 
 9. **Spaligner (Long-Read Alignment to Assembly Graphs)**:  
    Dvorkina, T., Antipov, D., & Korobeynikov, A. (2020). Spaligner: alignment of long reads to assembly graphs. *Bioinformatics*, 36(Suppl 1), i188–i195. [doi:10.1093/bioinformatics/btaa444](https://doi.org/10.1093/bioinformatics/btaa444)
+
+10. **LLM Assistance & Code Refactoring**:  
+    Gemini 3.8 Flash (Google DeepMind) was used for interactive code translation, test suite authoring, and documentation auditing.

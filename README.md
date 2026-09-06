@@ -283,6 +283,10 @@ When using `spades-rs`, please cite both this repository and the original litera
   Antipov, D., Korobeynikov, A., McLean, J. S., & Pevzner, P. A. (2016). **hybridSPAdes: an algorithm for hybrid assembly of short and long reads.** *Bioinformatics*, 32(7), 1009–1015. [doi:10.1093/bioinformatics/btv688](https://doi.org/10.1093/bioinformatics/btv688).  
   Dvorkina, T., Antipov, D., & Korobeynikov, A. (2020). **Spaligner: alignment of long reads to assembly graphs.** *Bioinformatics*, 36(Suppl 1), i188–i195. [doi:10.1093/bioinformatics/btaa444](https://doi.org/10.1093/bioinformatics/btaa444).
 
+### Computational and model assistance
+* **Gemini 3.8 Flash (Google DeepMind):**  
+  Interactive LLM assistance was used for code translation, test authoring, and documentation auditing.
+
 ### BibTeX entries
 ```bibtex
 @article{bankevich2012spades,
@@ -313,6 +317,14 @@ When using `spades-rs`, please cite both this repository and the original litera
   url       = {https://github.com/sagnikrout/spades-rs},
   version   = {1.0.0},
   year      = {2026}
+}
+
+@misc{gemini38flash,
+  author    = {{Google DeepMind}},
+  title     = {{Gemini 3.8 Flash}},
+  year      = {2026},
+  url       = {https://deepmind.google/technologies/gemini/},
+  note      = {Interactive LLM assistance for code translation, test authoring, and documentation auditing}
 }
 ```
 
