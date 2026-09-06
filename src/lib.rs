@@ -1,3 +1,6 @@
+#[cfg(not(target_pointer_width = "64"))]
+compile_error!("spades-rs requires a 64-bit architecture (x86_64, aarch64, riscv64). 32-bit systems are not supported due to the 4 GB address space barrier and 64-bit atomic requirements for de novo genome assembly.");
+
 pub mod assemble;
 pub mod bloom;
 pub mod dna;
