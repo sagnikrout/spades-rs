@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+title: "spades-rs: A Rust-based de novo genome assembler designed for low-memory environments"
+version: 1.0.0
+date-released: 2026-09-06
+url: "https://github.com/sagnikrout/spades-rs"
+license: MIT
+authors:
+  - family-names: Rout
+    given-names: Sagnik
+  - name: "Gemini 3.8 Flash"
+    affiliation: "Google DeepMind"

@@ -2,7 +2,7 @@
 name = "spades-rs"
 version = "1.0.0"
 edition = "2021"
-authors = ["Sagnik Rout <sagnikrout@users.noreply.github.com>", "Antigravity High-Performance Genomics"]
+authors = ["Sagnik Rout <sagnikrout@users.noreply.github.com>", "Gemini 3.8 Flash (Google DeepMind)"]
 description = "A Rust-based de novo genome assembler designed for low-memory environments"
 repository = "https://github.com/sagnikrout/spades-rs"
 readme = "README.md"

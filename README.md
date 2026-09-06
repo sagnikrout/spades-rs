@@ -312,7 +312,7 @@ When using `spades-rs`, please cite both this repository and the original litera
 }
 
 @software{spades_rs2026,
-  author    = {Rout, Sagnik},
+  author    = {Rout, Sagnik and {Gemini 3.8 Flash (Google DeepMind)}},
   title     = {{spades-rs: A Rust-based de novo genome assembler designed for low-memory environments}},
   url       = {https://github.com/sagnikrout/spades-rs},
   version   = {1.0.0},
@@ -327,6 +327,11 @@ When using `spades-rs`, please cite both this repository and the original litera
   note      = {Interactive LLM assistance for code translation, test authoring, and documentation auditing}
 }
 ```
+
+## Authors and contributors
+
+* **Sagnik Rout** (Lead developer, architecture and algorithms)
+* **Gemini 3.8 Flash** (Google DeepMind; LLM co-author for code translation, test authoring, and documentation auditing)
 
 ## License
 MIT License. Free for academic, non-commercial, and commercial genomics workflows.
