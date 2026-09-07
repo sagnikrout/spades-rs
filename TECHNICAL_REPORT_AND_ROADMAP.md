@@ -62,7 +62,7 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 | Metric | Verified Biological Truth | `spades-rs` Result | Observations |
 | :--- | :--- | :--- | :--- |
 | **Aligned Sequence** | 12,157,105 bp | **10,779,870 bp** | 10.78 Mb aligned |
-| **Genome Fraction (%)** | 100% | **88.34%** | **88.34% genome fraction (non-tandem genome)** (~ 88.5% non-tandem genome) |
+| **Genome Fraction (%)** | 100% | **88.34%** | 88.34% genome fraction (non-tandem genome) |
 | **Extensive Misassemblies** | 0 (True biology) | **4** (26 kb total) | **4 misassemblies (26 kb total)** across 16 chromosomes |
 | **Duplication Ratio** | 1.000 | **1.004** | Duplication ratio 1.004 |
 | **GC Content (%)** | 38.15% | **38.04%** | Delta = 0.11% (faithful base composition) |
@@ -103,7 +103,7 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 | :--- | :--- | :--- | :--- |
 | **Total Assembled Sequence** | 6,264,404 bp | **6,348,840 bp** (6,234,265 bp contigs) | Captured > 99.5% of the complete PAO1 genome |
 | **Genome Fraction (%)** | 100% | **97.77%** (97.26% contigs) | Reconstructed virtually all non-repetitive sequence |
-| **GC Content (%)** | 66.56% | **66.47%** | Delta = 0.09% (Delta = 0.09% across high-GC hairpins) |
+| **GC Content (%)** | 66.56% | **66.47%** | Delta = 0.09% (across high-GC hairpins) |
 | **Scaffold N50** | Reference | **45,430 bp** (L50 = 42 scaffolds) | Exceptional long-range contiguity across secondary structures |
 | **Contig N50 / NA50** | Reference | **6,166 bp / 6,130 bp** | Delta = 36 bp (near-zero fragmentation by misassemblies) |
 | **Largest Scaffold** | 6.26 Mb | **175,073 bp** (28,568 bp contig) | Broad chromosome coverage |
@@ -121,7 +121,7 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 
 ### Evaluation 6: AT-rich genome — *Plasmodium falciparum* 3D7
 * **Genome Specs**: 23,292,622 bp across **14 linear nuclear chromosomes**, **19.34% GC** (the most extreme AT-bias known in eukaryotes; introns and intergenic regions exceed 90–95% AT), apicoplast, and mitochondrion.
-* **Sequencing Data**: 6,183,162 Illumina NovaSeq 6000 paired reads (3.09M pairs, 2x 151 bp, \approx 40x depth, ENA `ERR11767125`).
+* **Sequencing Data**: 6,183,162 Illumina NovaSeq 6000 paired reads (3.09M pairs, 2x 151 bp, ≈40x depth, ENA `ERR11767125`).
 * **Ground Truth**: NCBI RefSeq / PlasmoDB `GCF_000002765.6` (`NC_004325.2`–`NC_037283.1`).
 
 | Metric | Reference Ground Truth | `spades-rs` Result | Observations |
@@ -130,7 +130,7 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 | **Total Aligned Sequence** | 23,292,622 bp | **20,026,379 bp** (18,690,898 bp contigs) | High coverage across all 14 chromosomes |
 | **Genome Fraction (%)** | 100% | **84.46%** (79.09% contigs) | 84.46% genome fraction (AT dropout in intergenic regions) (>90% AT dropout) |
 | **GC Content (%)** | 19.34% | **19.46%** (contigs 19.65%) | **Delta = 0.12%** (Delta = 0.09% in extreme hyper-AT) |
-| **Scaffold N50** | Reference | **5,916 bp** (1,676 bp contig N50) | \approx 6x higher contiguity than typical short-read assemblies (< 1 kb) |
+| **Scaffold N50** | Reference | **5,916 bp** (1,676 bp contig N50) | ≈6x higher contiguity than typical short-read assemblies (< 1 kb) |
 | **Largest Scaffold** | 3.29 Mb (Chr 14) | **46,064 bp** (11,380 bp contig) | Broad chromosome blocks without chimera |
 | **Extensive Misassemblies** | 0 | **15** (25.4 kb contigs) | **99.86% structurally pristine** contigs across 14 chromosomes. |
 | **Local Misassemblies** | 0 | **1** | Minimal local structural distortion |
@@ -162,7 +162,7 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 | **Total Assembled Length** | 12,591,251 bp | **12,196,684 bp** | **12,242,500 bp** | **97.23% total sequence recovery** |
 | **Total Aligned Length** | 12,591,251 bp | **12,167,120 bp** | **12,188,480 bp** | Complete non-rDNA euchromatin capture |
 | **Genome Fraction (%)** | 100% | **96.47%** | **96.63%** | High eukaryotic short-read ceiling (non-rDNA) |
-| **GC Content (%)** | 36.05% | **36.10%** | **36.10%** | **Delta = 0.05%** (Delta = 0.05%) |
+| **GC Content (%)** | 36.05% | **36.10%** | **36.10%** | Delta = 0.05% |
 | **N50 Contig / Scaffold Size** | Reference | **41,494 bp** | **163,989 bp** | Contig N50 41.5 kb, scaffold N50 164.0 kb |
 | **L50 (Number of Sequences)**| Reference | **88** | **19** | 19 scaffolds span L50 |
 | **Largest Alignment** | 5.58 Mb (Chr I) | **190,644 bp** | **190,644 bp** | Continuous unbranched syntenic blocks |
@@ -200,14 +200,14 @@ Audited against `data/pombe/pombe_ref.fa` and `data/pombe/pombe_annotations.gff`
 | **wee1** | Chr III | `SPCC18B5.03` | 4,032 bp | `scaffold_48` (79.6 kb) / `contig_50` (57.2 kb) | **100.0%** | **INTACT** (Mitotic Inhibitor Kinase) |
 | **rad3** | Chr II | `SPBC216.05` | 9,446 bp | `scaffold_52` (71.1 kb) / `contig_113` (32.6 kb) | **100.0%** | **INTACT** (ATR Checkpoint Master) |
 | **chk1** | Chr III | `SPCC1259.13` | 4,648 bp | `scaffold_35` (102.1 kb) / `contig_22` (79.2 kb) | **100.0%** | **INTACT** (Effector Checkpoint Kinase) |
-| **pol1** | Chr I | `SPAC3H5.06C` | 5,287 bp | `scaffold_42` (85.7 kb) / `contig_156` (25.3 kb) | **100.0%** | **INTACT** (DNA Pol \alpha catalytic subunit) |
+| **pol1** | Chr I | `SPAC3H5.06C` | 5,287 bp | `scaffold_42` (85.7 kb) / `contig_156` (25.3 kb) | **100.0%** | **INTACT** (DNA Pol α catalytic subunit) |
 | **tor1** | Chr II | `SPBC30D10.10C` | 7,501 bp | `scaffold_8` (291.0 kb) / `contig_73` (47.4 kb) | **100.0%** | **INTACT** (TOR complex kinase) |
 | **act1** | Chr II | `SPBC32H8.12C` | 1,849 bp | `scaffold_3` (590.7 kb) / `contig_12` (97.8 kb) | **100.0%** | **INTACT** (Actin) |
 | **ura4** | Chr III | `SPCC330.05C` | 1,037 bp | `scaffold_80` (35.0 kb) / `contig_132` (29.3 kb) | **100.0%** | **INTACT** (OMP Decarboxylase) |
 | **ade6** | Chr III | `SPCC1322.13` | 1,755 bp | `scaffold_15` (220.7 kb) / `contig_17` (85.8 kb) | **100.0%** | **INTACT** (Purine Biosynthesis) |
 | **leu1** | Chr II | `SPBC1A4.02C` | 1,285 bp | `scaffold_11` (270.9 kb) / `contig_85` (42.7 kb) | **100.0%** | **INTACT** (Leucine Biosynthesis) |
-| **mat1-Mi/Mc**| Chr II | `SPBC23G7.17C/09` | 809 bp | `scaffold_74` (41.3 kb) / `contig_536` (1.3 kb) | **100.0%** | **INTACT** (Expressed Mating Cassette) |
-| **mat3-Mi/Mc**| Chr II | `SPBC1711.01C/02` | 809 bp | `scaffold_74` (41.3 kb) / `contig_536` (1.3 kb) | **100.0%** | **INTACT** (Silenced Mating Cassette) |
+| **mat1-Mi/Mc** | Chr II | `SPBC23G7.17C/09` | 809 bp | `scaffold_74` (41.3 kb) / `contig_536` (1.3 kb) | **100.0%** | **INTACT** (Expressed Mating Cassette) |
+| **mat3-Mi/Mc** | Chr II | `SPBC1711.01C/02` | 809 bp | `scaffold_74` (41.3 kb) / `contig_536` (1.3 kb) | **100.0%** | **INTACT** (Silenced Mating Cassette) |
 
 **Result**: **14 / 14 (100.0%)** of all audited essential regulatory and mating-type loci were reconstructed with **100.0% sequence identity**.
 
@@ -253,7 +253,7 @@ Audited via [`tools/zymo_per_species_quast.py`](tools/zymo_per_species_quast.py)
 | **Bacillus subtilis** | Firmicute | 4,045,677 bp | **3,814,603 bp** | **94.29%** | High Recovery (Full Genome) |
 | **Salmonella enterica** | Enterobacteriaceae | 4,809,318 bp | **4,259,648 bp** | **88.57%** | High Recovery (Enteric Resolved) |
 | **Escherichia coli** | Enterobacteriaceae | 4,875,441 bp | **4,260,262 bp** | **87.38%** | High Recovery (Enteric Resolved) |
-| **Pseudomonas aeruginosa** | \gamma-Proteobacteria | 6,792,330 bp | **5,743,430 bp** | **84.56%** | High Recovery (66.6% GC Metagenome) |
+| **Pseudomonas aeruginosa** | γ-Proteobacteria | 6,792,330 bp | **5,743,430 bp** | **84.56%** | High Recovery (66.6% GC Metagenome) |
 | **Lactobacillus fermentum** | Lactic Acid Bacterium | 1,905,333 bp | **1,537,753 bp** | **80.71%** | High Recovery (Full Genome) |
 | **Saccharomyces cerevisiae** | Ascomycete Yeast | 12,843,354 bp | **37,407 bp** | 0.29% | 2% Abundance Spike (Expected Depth Dropout) |
 | **Cryptococcus neoformans** | Basidiomycete Yeast | 29,176,277 bp | **33,319 bp** | 0.11% | 2% Abundance Spike (Expected Depth Dropout) |
@@ -272,8 +272,8 @@ Audited via [`tools/check_zymo_chimeras.py`](tools/check_zymo_chimeras.py):
 * **Organism & Isolate**: *Escherichia coli* K-12 single-cell MDA isolate (`SRR31677630`).
 * **Reference Ground Truth**: NCBI RefSeq `NC_000913.3` (4,641,652 bp, 50.79% GC).
 * **The Single-Cell & Algorithmic Challenge**:
-  * **Extreme Amplification Fluctuations**: Multiple Displacement Amplification (MDA) with bacteriophage \phi29 DNA polymerase causes isothermal hyper-branching, resulting in localized coverage spikes (> 150x) alongside severe dropout valleys (0x) where entire genomic regions receive zero reads.
-  * **Chimeric Inversion Artifacts**: \phi29 strand displacement creates chimera junctions (inverted loops and spurious branch-points) that traditional assemblers assemble into chimeric misassembled loops.
+  * **Extreme Amplification Fluctuations**: Multiple Displacement Amplification (MDA) with bacteriophage ϕ29 DNA polymerase causes isothermal hyper-branching, resulting in localized coverage spikes (> 150x) alongside severe dropout valleys (0x) where entire genomic regions receive zero reads.
+  * **Chimeric Inversion Artifacts**: ϕ29 strand displacement creates chimera junctions (inverted loops and spurious branch-points) that traditional assemblers assemble into chimeric misassembled loops.
   * **Evaluates `--sc` Mode**: Single-cell adaptive k-mer normalizer, dynamic local coverage estimation, and graph-level chimera pruning.
 * **Sequencing Data**: 4,783,230 paired-end reads (9,566,460 reads total, 2x 101 bp, authentic Illumina HiSeq 2500 from NCBI SRA `SRR31677630`).
 
@@ -289,7 +289,7 @@ Audited via [`tools/check_zymo_chimeras.py`](tools/check_zymo_chimeras.py):
 | **Largest Contig / Scaffold** | Reference | **12,952 bp** | **23,565 bp** | Spans multi-kilobase contiguous operons |
 | **Extensive Misassemblies** | 0 | **7** (12.7 kb total) | 384 (scaffold-level) | **99.21% of contig sequence is completely collinear** |
 | **Translocations** | 0 | **0** | **0** | **Zero inter-genomic or cross-locus chimeras** |
-| **Relocations / Inversions** | 0 | **5 relocations, 2 inversions** | Paired-end artifacts | Graph pruning successfully suppresses \phi29 chimeras |
+| **Relocations / Inversions** | 0 | **5 relocations, 2 inversions** | Paired-end artifacts | Graph pruning successfully suppresses ϕ29 chimeras |
 | **Base Accuracy (Mismatches)** | 0.00 | **81.20 per  100 kb** | **5.21 per  100 kb** | **> 99.91% base accuracy** (2,557 polished bases) |
 | **Duplication Ratio** | 1.000 | **1.009** | **1.012** | Virtually 1.000 (no artificial chimeric duplication) |
 | **MDA Coverage Dynamic Range**| Uniform (1x) | **2.9x to 150.6x (51.9x fluctuation)** | `--sc` mode normalizes extreme coverage spikes |

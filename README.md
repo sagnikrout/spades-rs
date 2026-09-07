@@ -48,7 +48,7 @@ The resulting executable is located at `target/release/spades-rs`.
 
 ## Codebase and file structure
 
-The codebase is partitioned into 16 modules in `src/`, automated tests in `tests/`, and verification scripts in `tools/`:
+The codebase is partitioned into 19 modules in `src/`, automated tests in `tests/`, and verification scripts in `tools/`:
 
 | Path | Primary responsibility | Key algorithms and mechanisms |
 | :--- | :--- | :--- |
