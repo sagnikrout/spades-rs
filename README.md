@@ -15,24 +15,37 @@ A Rust-based de novo genome assembler designed for low-memory environments.
 
 > Note: `spades-rs` is actively evolving software. While it reproduces key SPAdes heuristics, legacy SPAdes remains the mature reference standard for production genomics pipelines.
 
-## Quickstart
+## Installation
 
-### Precompiled binaries
+### 1-Line Installer (Linux, WSL, Google Colab, macOS)
 
-Precompiled standalone binaries for 64-bit platforms are available from GitHub releases:
+Install the standalone binary and `spades.py` compatibility alias with one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sagnikrout/spades-rs/master/install.sh | bash
+```
+
+**In Google Colab**, paste this into any notebook cell:
+```python
+!curl -fsSL https://raw.githubusercontent.com/sagnikrout/spades-rs/master/install.sh | bash
+!spades-rs assemble -1 reads_1.fq.gz -2 reads_2.fq.gz -o out_dir
+```
+
+### Precompiled Standalone Binaries
+
+Direct downloads from [GitHub Releases](https://github.com/sagnikrout/spades-rs/releases):
 
 | Platform | Target triple | Download link |
 | :--- | :--- | :--- |
-| Linux x86_64 | `x86_64-unknown-linux-musl` | [`spades-rs-linux-musl`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-musl) |
+| Linux x86_64 (musl) | `x86_64-unknown-linux-musl` | [`spades-rs-linux-x86_64-musl`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-x86_64-musl) |
 | Linux ARM64 | `aarch64-unknown-linux-gnu` | [`spades-rs-linux-arm64`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-arm64) |
 | macOS Apple Silicon | `aarch64-apple-darwin` | [`spades-rs-macos-arm64`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-macos-arm64) |
 | Windows x86_64 | `x86_64-pc-windows-msvc` | [`spades-rs-windows-x86_64.exe`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-windows-x86_64.exe) |
 
 ```bash
-# Download and execute on 64-bit Linux
-curl -L -o spades-rs https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-musl
-chmod +x spades-rs
-./spades-rs assemble -i reads_1.fq.gz reads_2.fq.gz -o contigs.fasta
+# Manual download on 64-bit Linux
+curl -fsSL https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-x86_64-musl -o /usr/local/bin/spades-rs
+chmod +x /usr/local/bin/spades-rs
 ```
 
 ### Build from source
