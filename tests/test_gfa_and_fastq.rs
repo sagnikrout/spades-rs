@@ -96,3 +96,60 @@ fn test_empty_file_parsing() {
 
     let _ = std::fs::remove_file(empty_path);
 }
+
+#[test]
+fn test_phred_autodetection_and_quality_trimming() {
+    use spades_rs::fastq::{
+        detect_phred_offset, parse_reads_with_quality, PhredEncoding, QualityFilterConfig,
+    };
+
+    // Phred-33 sample with '!' (ASCII 33)
+    let p33_sample = b"IIII!!!!IIII";
+    assert_eq!(detect_phred_offset(p33_sample), PhredEncoding::Phred33);
+
+    // Phred-64 sample where qualities are between '@' (64) and 'h' (104)
+    let p64_sample = b"bcdefghh";
+    assert_eq!(detect_phred_offset(p64_sample), PhredEncoding::Phred64);
+
+    // Test 3' quality trimming
+    let temp_dir = std::env::temp_dir();
+    let fq_path = temp_dir.join("test_qual_trim.fq");
+
+    // Read: 10 bp sequence, last 3 bp have low quality '!' (Q0 in Phred33)
+    let content = b"@read1\nACGTACGTAA\n+\nIIIIIII!!!\n";
+    {
+        let mut f = File::create(&fq_path).unwrap();
+        f.write_all(content).unwrap();
+    }
+
+    let filter = QualityFilterConfig {
+        min_quality: 10,
+        min_read_len: 5,
+        max_ns: 1,
+        phred_override: Some(PhredEncoding::Phred33),
+    };
+
+    let trimmed =
+        parse_reads_with_quality(&fq_path, Some(&filter)).expect("Parsing with quality failed");
+    assert_eq!(trimmed.len(), 1);
+    assert_eq!(trimmed[0], b"ACGTACG"); // Trimmed off the last 3 low-quality bases ('TAA')
+
+    let _ = std::fs::remove_file(fq_path);
+}
+
+#[test]
+fn test_barcode_extraction() {
+    use spades_rs::fastq::extract_barcode_from_header;
+
+    let h1 = b"@M001:1:000000000-A1B2C:1:1101:1000:2000 1:N:0:1 BX:Z:ACGTACGT-1";
+    assert!(extract_barcode_from_header(h1).is_some());
+
+    let h2 = b"@SRR12345 BC:Z:TGCATGCA";
+    assert!(extract_barcode_from_header(h2).is_some());
+
+    let h3 = b"@read_illumina#ACGTACGT/1";
+    assert!(extract_barcode_from_header(h3).is_some());
+
+    let h_none = b"@regular_read_without_barcode 1:N:0:1";
+    assert!(extract_barcode_from_header(h_none).is_none());
+}

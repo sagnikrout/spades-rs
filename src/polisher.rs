@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 pub struct Polisher {
     pub k: usize,
     pub min_coverage_support: u32,
+    pub careful: bool,
 }
 
 impl Default for Polisher {
@@ -19,6 +20,7 @@ impl Default for Polisher {
         Self {
             k: 21,
             min_coverage_support: 5,
+            careful: false,
         }
     }
 }
@@ -124,7 +126,13 @@ impl Polisher {
             }
         });
 
-        // 4. Apply consensus where support >= threshold and > 80% dominant
+        // 4. Apply consensus where support >= threshold and dominant
+        let (min_support, dominance_ratio) = if self.careful {
+            (self.min_coverage_support.min(3), 0.70)
+        } else {
+            (self.min_coverage_support, 0.80)
+        };
+
         let mut total_corrections = 0;
         for (c_idx, contig) in contigs.iter_mut().enumerate() {
             let len = contig.sequence.len();
@@ -137,7 +145,7 @@ impl Polisher {
                 let c3 = counts[3].load(Ordering::Relaxed);
                 let total = c0 + c1 + c2 + c3;
 
-                if total >= self.min_coverage_support {
+                if total >= min_support {
                     let ary = [c0, c1, c2, c3];
                     let mut max_code = 0;
                     let mut max_c = 0;
@@ -148,7 +156,7 @@ impl Polisher {
                         }
                     }
 
-                    if (max_c as f64 / total as f64) >= 0.8 {
+                    if (max_c as f64 / total as f64) >= dominance_ratio {
                         let consensus_base = crate::dna::bit2_to_base(max_code as u8);
                         if contig.sequence[pos] != consensus_base {
                             contig.sequence[pos] = consensus_base;
@@ -260,6 +268,12 @@ impl Polisher {
             }
         });
 
+        let (min_support, dominance_ratio) = if self.careful {
+            (self.min_coverage_support.min(3), 0.70)
+        } else {
+            (self.min_coverage_support, 0.80)
+        };
+
         let mut total_corrections = 0;
         for (c_idx, contig) in contigs.iter_mut().enumerate() {
             let len = contig.sequence.len();
@@ -272,7 +286,7 @@ impl Polisher {
                 let c3 = counts[3].load(Ordering::Relaxed);
                 let total = c0 + c1 + c2 + c3;
 
-                if total >= self.min_coverage_support {
+                if total >= min_support {
                     let ary = [c0, c1, c2, c3];
                     let mut max_code = 0;
                     let mut max_c = 0;
@@ -283,7 +297,7 @@ impl Polisher {
                         }
                     }
 
-                    if (max_c as f64 / total as f64) >= 0.8 {
+                    if (max_c as f64 / total as f64) >= dominance_ratio {
                         let consensus_base = crate::dna::bit2_to_base(max_code as u8);
                         if contig.sequence[pos] != consensus_base {
                             contig.sequence[pos] = consensus_base;

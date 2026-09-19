@@ -20,3 +20,4 @@ pub mod scaffold;
 pub mod simplify;
 pub mod single_cell;
 pub mod spaligner;
+pub mod splitter;

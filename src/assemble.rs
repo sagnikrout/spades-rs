@@ -24,6 +24,7 @@ pub struct AssemblyStats {
     pub gc_content: f64,
 }
 
+#[derive(Clone, Debug)]
 pub struct AssemblerConfig {
     pub k: usize,
     pub min_coverage: f64,
@@ -35,7 +36,10 @@ pub struct AssemblerConfig {
     pub is_rna: bool,
     pub is_sc: bool,
     pub polish: bool,
+    pub careful: bool,
     pub long_reads: Option<Vec<std::path::PathBuf>>,
+    pub linked_reads: Option<Vec<std::path::PathBuf>>,
+    pub trusted_contigs: Option<Vec<std::path::PathBuf>>,
     pub prior_contigs: Option<Vec<Vec<u8>>>,
     pub skip_repeat_resolution: bool,
     pub memory_limits: Option<crate::memory::MemoryLimits>,
@@ -54,7 +58,10 @@ impl Default for AssemblerConfig {
             is_rna: false,
             is_sc: false,
             polish: true,
+            careful: false,
             long_reads: None,
+            linked_reads: None,
+            trusted_contigs: None,
             prior_contigs: None,
             skip_repeat_resolution: false,
             memory_limits: None,
@@ -305,6 +312,30 @@ pub fn run_assembly_with_loaded_reads(
         contigs
     };
 
+    let contigs = if let Some(ref lr_paths) = config.linked_reads {
+        if !lr_paths.is_empty() {
+            println!("─── [Stage 6.6] SpLitteR Linked-Read Barcode Repeat Resolution ───");
+            let mut all_linked = Vec::new();
+            for p in lr_paths {
+                if let Ok(records) = crate::fastq::parse_linked_reads_from_file(p) {
+                    all_linked.extend(records);
+                }
+            }
+            let bridged = crate::splitter::LinkedReadResolver::new(k)
+                .bridge_with_linked_reads(contigs, &all_linked);
+            println!(
+                "  Contigs after linked-read repeat resolution: {} (Elapsed: {:.3}s)",
+                bridged.len(),
+                start_time.elapsed().as_secs_f64()
+            );
+            bridged
+        } else {
+            contigs
+        }
+    } else {
+        contigs
+    };
+
     let contigs = if config.is_rna {
         println!("─── [RNA Mode] Preserving Alternative Splicing Isoforms ───");
         crate::rna::RnaEngine::default().process_transcripts(contigs)
@@ -327,9 +358,20 @@ pub fn run_assembly_with_loaded_reads(
     );
 
     let contigs = if config.polish && !config.skip_repeat_resolution {
-        println!("─── [Stage 8] Consensus Base Polishing ───");
-        let (polished, fixes) =
-            crate::polisher::Polisher::default().polish_contigs(contigs, all_reads);
+        println!(
+            "─── [Stage 8] Consensus Base Polishing{} ───",
+            if config.careful {
+                " (Careful Mode: Active)"
+            } else {
+                ""
+            }
+        );
+        let polisher = crate::polisher::Polisher {
+            k: 21,
+            min_coverage_support: if config.careful { 3 } else { 5 },
+            careful: config.careful,
+        };
+        let (polished, fixes) = polisher.polish_contigs(contigs, all_reads);
         println!(
             "  Polished {} base discrepancies (Elapsed: {:.3}s)",
             fixes,
@@ -639,6 +681,30 @@ pub fn run_assembly_with_packed_reads(
         contigs
     };
 
+    let contigs = if let Some(ref lr_paths) = config.linked_reads {
+        if !lr_paths.is_empty() {
+            println!("─── [Stage 6.6] SpLitteR Linked-Read Barcode Repeat Resolution ───");
+            let mut all_linked = Vec::new();
+            for p in lr_paths {
+                if let Ok(records) = crate::fastq::parse_linked_reads_from_file(p) {
+                    all_linked.extend(records);
+                }
+            }
+            let bridged = crate::splitter::LinkedReadResolver::new(k)
+                .bridge_with_linked_reads(contigs, &all_linked);
+            println!(
+                "  Contigs after linked-read repeat resolution: {} (Elapsed: {:.3}s)",
+                bridged.len(),
+                start_time.elapsed().as_secs_f64()
+            );
+            bridged
+        } else {
+            contigs
+        }
+    } else {
+        contigs
+    };
+
     let contigs = if config.is_rna {
         println!("─── [RNA Mode] Preserving Alternative Splicing Isoforms ───");
         crate::rna::RnaEngine::default().process_transcripts(contigs)
@@ -661,9 +727,20 @@ pub fn run_assembly_with_packed_reads(
     );
 
     let contigs = if config.polish && !config.skip_repeat_resolution {
-        println!("─── [Stage 8] Consensus Base Polishing ───");
-        let (polished, fixes) =
-            crate::polisher::Polisher::default().polish_contigs_packed(contigs, packed);
+        println!(
+            "─── [Stage 8] Consensus Base Polishing{} ───",
+            if config.careful {
+                " (Careful Mode: Active)"
+            } else {
+                ""
+            }
+        );
+        let polisher = crate::polisher::Polisher {
+            k: 21,
+            min_coverage_support: if config.careful { 3 } else { 5 },
+            careful: config.careful,
+        };
+        let (polished, fixes) = polisher.polish_contigs_packed(contigs, packed);
         println!(
             "  Polished {} base discrepancies (Elapsed: {:.3}s)",
             fixes,
@@ -729,7 +806,29 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
         packed.memory_usage_bytes() as f64 / 1_048_576.0
     );
 
-    run_assembly_with_packed_reads(&packed, config)
+    let config_clone;
+    let effective_config = if let Some(ref trusted) = config.trusted_contigs {
+        let mut priors = config.prior_contigs.clone().unwrap_or_default();
+        for tp in trusted {
+            if let Ok(seqs) = crate::fastq::parse_reads_from_file(tp) {
+                println!(
+                    "  [Trusted Contigs] Loaded {} high-confidence backbone priors from {:?}",
+                    seqs.len(),
+                    tp
+                );
+                priors.extend(seqs);
+            }
+        }
+        config_clone = AssemblerConfig {
+            prior_contigs: Some(priors),
+            ..config.clone()
+        };
+        &config_clone
+    } else {
+        config
+    };
+
+    run_assembly_with_packed_reads(&packed, effective_config)
 }
 
 /// Computes assembly QC metrics: N50, L50, Max length, total bases, GC%.

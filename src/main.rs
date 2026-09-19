@@ -9,7 +9,7 @@ use std::time::Instant;
 #[command(name = "spades-rs")]
 #[command(about = "A Rust-based de novo genome assembler designed for low-memory environments")]
 #[command(
-    after_help = "Citations:\n  SPAdes: Bankevich et al. (2012) J Comput Biol 19(5):455-477\n  Protocol: Prjibelski et al. (2020) Curr Protoc Bioinformatics 70(1):e102\n  See README.md for full citations & BibTeX entries."
+    after_help = "Citations:\n  SPAdes: Bankevich et al. (2012) J Comput Biol 19(5):455-477\n  Protocol: Prjibelski et al. (2020) Curr Protoc Bioinformatics 70(1):e102\n  SpLitteR: Tolstoganov et al. (2024) PeerJ 12:e18050\n  See README.md for full citations & BibTeX entries."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -17,12 +17,29 @@ struct Cli {
 }
 
 #[derive(Subcommand, Debug)]
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Assemble reads from FASTQ / FASTA files into contigs and scaffolds
     Assemble {
         /// Input FASTQ / FASTA files (can specify multiple or gzipped .fq.gz)
-        #[arg(short, long, required = true, num_args = 1..)]
+        #[arg(short, long, num_args = 0..)]
         inputs: Vec<PathBuf>,
+
+        /// File with forward paired-end reads (SPAdes -1 option)
+        #[arg(short = '1', long = "pe1-1", value_name = "FILE")]
+        pe1_1: Option<PathBuf>,
+
+        /// File with reverse paired-end reads (SPAdes -2 option)
+        #[arg(short = '2', long = "pe1-2", value_name = "FILE")]
+        pe1_2: Option<PathBuf>,
+
+        /// File with unpaired / single reads (SPAdes -s option)
+        #[arg(short = 's', long = "pe1-s", value_name = "FILE")]
+        pe1_s: Option<PathBuf>,
+
+        /// File with interleaved paired-end reads (SPAdes --12 option)
+        #[arg(long = "12", value_name = "FILE")]
+        pe1_12: Option<PathBuf>,
 
         /// Output contigs FASTA file
         #[arg(short, long, default_value = "contigs.fasta")]
@@ -47,6 +64,10 @@ enum Commands {
         /// Run BayesHammer read error correction before assembling
         #[arg(long)]
         error_correct: bool,
+
+        /// Run careful mode (tries to reduce number of mismatches and short indels)
+        #[arg(long)]
+        careful: bool,
 
         /// Enable metaSPAdes metagenomics mode for uneven coverage datasets
         #[arg(long)]
@@ -75,6 +96,14 @@ enum Commands {
         /// PacBio HiFi reads for hybrid long-read repeat bridging
         #[arg(long)]
         pacbio: Option<PathBuf>,
+
+        /// Path to trusted contigs / prior high-confidence backbones
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        trusted_contigs: Option<Vec<PathBuf>>,
+
+        /// File with barcoded linked reads for SpLitteR repeat resolution (TELL-Seq or 10x)
+        #[arg(long = "splitter", aliases = ["linked-reads"], value_delimiter = ',', num_args = 1..)]
+        splitter: Option<Vec<PathBuf>>,
 
         /// Optional list of k-mers for multi-k iterative assembly (e.g. 21,33,55)
         #[arg(long, value_delimiter = ',', num_args = 1..)]
@@ -112,12 +141,17 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Assemble {
             inputs,
+            pe1_1,
+            pe1_2,
+            pe1_s,
+            pe1_12,
             output,
             k,
             coverage,
             min_len,
             threads,
             error_correct,
+            careful,
             meta,
             plasmid,
             rna,
@@ -125,6 +159,8 @@ fn main() -> anyhow::Result<()> {
             no_polish,
             nanopore,
             pacbio,
+            trusted_contigs,
+            splitter,
             multik,
             max_memory,
         } => {
@@ -133,6 +169,34 @@ fn main() -> anyhow::Result<()> {
                     .num_threads(t)
                     .build_global()?;
             }
+
+            let mut all_inputs = inputs;
+            if let Some(r1) = pe1_1 {
+                all_inputs.insert(0, r1);
+                if let Some(r2) = pe1_2 {
+                    if all_inputs.len() > 1 {
+                        all_inputs.insert(1, r2);
+                    } else {
+                        all_inputs.push(r2);
+                    }
+                }
+            } else if let Some(r2) = pe1_2 {
+                all_inputs.push(r2);
+            }
+            if let Some(s) = pe1_s {
+                all_inputs.push(s);
+            }
+            if let Some(interleaved) = pe1_12 {
+                all_inputs.push(interleaved);
+            }
+
+            if all_inputs.is_empty() {
+                anyhow::bail!(
+                    "No input reads provided. Specify reads via -1 / -2, -s, --12, or -i / --inputs."
+                );
+            }
+
+            let effective_error_correct = error_correct || careful;
 
             let memory_limits = spades_rs::memory::MemoryLimits::determine(max_memory);
 
@@ -172,8 +236,16 @@ fn main() -> anyhow::Result<()> {
             println!("  Min Contig Length: {} bp", min_len);
             println!(
                 "  Error Correction: {}",
-                if error_correct {
+                if effective_error_correct {
                     "ENABLED (BayesHammer)"
+                } else {
+                    "DISABLED"
+                }
+            );
+            println!(
+                "  Careful Mode:     {}",
+                if careful {
+                    "ENABLED (Mismatch Corrections Active)"
                 } else {
                     "DISABLED"
                 }
@@ -203,6 +275,12 @@ fn main() -> anyhow::Result<()> {
                 "  Consensus Polishing: {}",
                 if !no_polish { "ENABLED" } else { "DISABLED" }
             );
+            if let Some(ref trusted) = trusted_contigs {
+                println!("  Trusted Contigs:      {} file(s)", trusted.len());
+            }
+            if let Some(ref sp) = splitter {
+                println!("  SpLitteR Barcoded:    {} file(s)", sp.len());
+            }
             if let Some(ref kms) = multik {
                 println!("  Multi-K Iteration: {:?}", kms);
             }
@@ -215,34 +293,40 @@ fn main() -> anyhow::Result<()> {
                     min_coverage: coverage,
                     min_contig_len: min_len,
                     bloom_bits: memory_limits.optimal_bloom_bits(),
-                    error_correct,
+                    error_correct: effective_error_correct,
                     is_meta: meta,
                     is_plasmid: plasmid,
                     is_rna: rna,
                     is_sc: sc,
                     polish: !no_polish,
+                    careful,
                     long_reads: long_reads_opt,
+                    linked_reads: splitter,
+                    trusted_contigs,
                     memory_limits: Some(memory_limits),
                 };
-                run_multik_assembly(&inputs, &mk_config)?
+                run_multik_assembly(&all_inputs, &mk_config)?
             } else {
                 let config = AssemblerConfig {
                     k,
                     min_coverage: coverage,
                     min_contig_len: min_len,
                     bloom_bits: memory_limits.optimal_bloom_bits(),
-                    error_correct,
+                    error_correct: effective_error_correct,
                     is_meta: meta,
                     is_plasmid: plasmid,
                     is_rna: rna,
                     is_sc: sc,
                     polish: !no_polish,
+                    careful,
                     long_reads: long_reads_opt,
+                    linked_reads: splitter,
+                    trusted_contigs,
                     prior_contigs: None,
                     skip_repeat_resolution: false,
                     memory_limits: Some(memory_limits),
                 };
-                run_assembly(&inputs, &config)?
+                run_assembly(&all_inputs, &config)?
             };
 
             println!("-----------------------------------------------------------");
@@ -326,7 +410,10 @@ fn main() -> anyhow::Result<()> {
                 is_rna: false,
                 is_sc: false,
                 polish: true,
+                careful: false,
                 long_reads: None,
+                linked_reads: None,
+                trusted_contigs: None,
                 prior_contigs: None,
                 skip_repeat_resolution: false,
                 memory_limits: None,

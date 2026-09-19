@@ -215,6 +215,7 @@ fn test_polisher() {
     let polisher = Polisher {
         k: 3,
         min_coverage_support: 1,
+        careful: false,
     };
 
     // Contig with an error 'T' instead of 'C' at index 3

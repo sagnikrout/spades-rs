@@ -182,3 +182,75 @@ fn test_spaligner_repeat_unrolling_two_copies() {
     assert!(has_arb, "Bridge A-R-B must be resolved");
     assert!(has_crd, "Bridge C-R-D must be resolved");
 }
+
+#[test]
+fn test_splitter_linked_read_resolution() {
+    use spades_rs::fastq::LinkedReadRecord;
+    use spades_rs::splitter::LinkedReadResolver;
+
+    let k = 15;
+    let resolver = LinkedReadResolver {
+        k,
+        min_shared_barcodes: 2,
+        min_reads_per_barcode: 2,
+    };
+
+    // 3 distinct unitigs with non-overlapping sequences
+    let u0 = Unitig {
+        id: 0,
+        sequence: b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT".to_vec(),
+        mean_coverage: 15.0,
+        kmers_count: 26,
+    };
+    let u1 = Unitig {
+        id: 1,
+        sequence: b"TGATTGATTGATTGATTGATTGATTGATTGATTGATTGAT".to_vec(),
+        mean_coverage: 15.0,
+        kmers_count: 26,
+    };
+    let u2 = Unitig {
+        id: 2,
+        sequence: b"GGCAGGCAGGCAGGCAGGCAGGCAGGCAGGCAGGCAGGCA".to_vec(),
+        mean_coverage: 15.0,
+        kmers_count: 26,
+    };
+
+    // Linked reads with barcode 100 linking U0 and U1
+    let lr1 = LinkedReadRecord {
+        barcode: Some(100),
+        seq: b"ACGTACGTACGTACGTACGT".to_vec(),
+    };
+    let lr2 = LinkedReadRecord {
+        barcode: Some(100),
+        seq: b"TGATTGATTGATTGATTGAT".to_vec(),
+    };
+
+    // Linked reads with barcode 200 also linking U0 and U1
+    let lr3 = LinkedReadRecord {
+        barcode: Some(200),
+        seq: b"ACGTACGTACGTACGTACGT".to_vec(),
+    };
+    let lr4 = LinkedReadRecord {
+        barcode: Some(200),
+        seq: b"TGATTGATTGATTGATTGAT".to_vec(),
+    };
+
+    let linked_reads = vec![lr1, lr2, lr3, lr4];
+    let resolved = resolver.bridge_with_linked_reads(vec![u0, u1, u2], &linked_reads);
+
+    // U0 and U1 should be linked into a scaffold with N gap; U2 should remain separate
+    assert_eq!(
+        resolved.len(),
+        2,
+        "Expected 2 scaffolds after linked-read bridging"
+    );
+    let has_linked_scaffold = resolved.iter().any(|u| {
+        u.sequence.windows(15).any(|w| w == b"ACGTACGTACGTACG")
+            && u.sequence.windows(15).any(|w| w == b"TGATTGATTGATTGA")
+            && u.sequence.contains(&b'N')
+    });
+    assert!(
+        has_linked_scaffold,
+        "U0 and U1 must be bridged by shared barcodes"
+    );
+}

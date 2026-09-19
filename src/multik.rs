@@ -20,7 +20,10 @@ pub struct MultiKConfig {
     pub is_rna: bool,
     pub is_sc: bool,
     pub polish: bool,
+    pub careful: bool,
     pub long_reads: Option<Vec<PathBuf>>,
+    pub linked_reads: Option<Vec<PathBuf>>,
+    pub trusted_contigs: Option<Vec<PathBuf>>,
     pub memory_limits: Option<crate::memory::MemoryLimits>,
 }
 
@@ -37,7 +40,10 @@ impl Default for MultiKConfig {
             is_rna: false,
             is_sc: false,
             polish: true,
+            careful: false,
             long_reads: None,
+            linked_reads: None,
+            trusted_contigs: None,
             memory_limits: None,
         }
     }
@@ -90,11 +96,18 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
             is_rna: config.is_rna,
             is_sc: config.is_sc,
             polish: config.polish && is_last_step, // Polish on final assembly
+            careful: config.careful && is_last_step,
             long_reads: if is_last_step {
                 config.long_reads.clone()
             } else {
                 None
             },
+            linked_reads: if is_last_step {
+                config.linked_reads.clone()
+            } else {
+                None
+            },
+            trusted_contigs: config.trusted_contigs.clone(),
             prior_contigs: prior_contigs.clone(),
             skip_repeat_resolution: !is_last_step,
             memory_limits: config.memory_limits,

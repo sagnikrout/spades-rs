@@ -48,7 +48,7 @@ The resulting executable is located at `target/release/spades-rs`.
 
 ## Codebase and file structure
 
-The codebase is partitioned into 19 modules in `src/`, automated tests in `tests/`, and verification scripts in `tools/`:
+The codebase is partitioned into 20 modules in `src/`, automated tests in `tests/`, and verification scripts in `tools/`:
 
 | Path | Primary responsibility | Key algorithms and mechanisms |
 | :--- | :--- | :--- |
@@ -56,7 +56,7 @@ The codebase is partitioned into 19 modules in `src/`, automated tests in `tests
 | [`src/lib.rs`](src/lib.rs) | Crate root and architecture checks | Compile-time 64-bit pointer assertion, module re-exports |
 | [`src/dna.rs`](src/dna.rs) | Nucleotide encoding and k-mer hashing | 2-bit representation (A=0, C=1, G=2, T=3), 64-bit and 256-bit canonical k-mers |
 | [`src/bloom.rs`](src/bloom.rs) | Memory shield for k-mer counting | Lock-free Two-Tier Atomic Bloom filter (512 MB fixed bitset) |
-| [`src/fastq.rs`](src/fastq.rs) | FASTQ and FASTA sequence ingestion | Multi-threaded streaming gzip and plain text sequence parser |
+| [`src/fastq.rs`](src/fastq.rs) | FASTQ and FASTA sequence ingestion | Multi-threaded streaming parser, Phred-33/64 auto-detection, quality trimming |
 | [`src/packed_reads.rs`](src/packed_reads.rs) | Compact read storage | Cache-aligned 2-bit packed array (8.0M reads in 352 MB RAM) |
 | [`src/hammer.rs`](src/hammer.rs) | Read error correction | BayesHammer algorithm: bit-parallel Hamming clustering and quality voting |
 | [`src/graph.rs`](src/graph.rs) | Compacted de Bruijn graph (cDBG) | Unitig topology, bidirected port involution (2N ports), adjacency indices |
@@ -64,16 +64,17 @@ The codebase is partitioned into 19 modules in `src/`, automated tests in `tests
 | [`src/paired_info.rs`](src/paired_info.rs) | Paired-end insert size estimation | Gaussian distance distribution estimation (mean and standard deviation) |
 | [`src/expander.rs`](src/expander.rs) | Paired-end repeat resolution | ExSPAnder algorithm: Dijkstra path extension with paired-read voting |
 | [`src/spaligner.rs`](src/spaligner.rs) | Long-read hybrid repeat bridging | Spaligner algorithm: ONT and PacBio graph alignment and repeat unrolling |
+| [`src/splitter.rs`](src/splitter.rs) | Linked-read / SLR repeat resolution | SpLitteR algorithm: 10x/TELL-Seq barcode tracing and scaffold unrolling |
 | [`src/multik.rs`](src/multik.rs) | Multi-K progressive iteration | Progressive unitig-to-reads seeding loop across increasing k-mer sizes |
 | [`src/scaffold.rs`](src/scaffold.rs) | Scaffolding and gap closing | Local de Bruijn path walker with cycle guards, insertion of 'N' bridges |
-| [`src/polisher.rs`](src/polisher.rs) | Consensus base polishing | Wavefront-style consensus alignment against raw reads |
+| [`src/polisher.rs`](src/polisher.rs) | Consensus base polishing | Multi-threaded consensus voting with `--careful` mismatch correction |
 | [`src/modes.rs`](src/modes.rs) | Metagenomics and plasmid pipelines | metaSPAdes coverage filtering and plasmidSPAdes circularity extraction |
 | [`src/rna.rs`](src/rna.rs) | Transcriptome assembly pipeline | rnaSPAdes alternative isoform preservation and transcript extraction |
 | [`src/single_cell.rs`](src/single_cell.rs) | Single-cell MDA normalization | scSPAdes local coverage normalization for severe amplification bias |
 | [`src/memory.rs`](src/memory.rs) | Hardware memory governor | Real-time RAM detection, 20% OS headroom protection, dynamic Bloom sizing |
 | [`src/gfa.rs`](src/gfa.rs) | Graph visualization export | Graphical Fragment Assembly (GFA v1.1) exporter for Bandage |
 | [`src/assemble.rs`](src/assemble.rs) | Top-level assembly orchestration | Coordinates ingestion, correction, graph construction, resolution, and output |
-| [`tests/`](tests/) | Integration test suite | 39 automated tests covering unitigs, graph simplification, and full genomes |
+| [`tests/`](tests/) | Integration test suite | 42 automated tests covering unitigs, graph simplification, and full genomes |
 | [`tools/`](tools/) | Biological audit scripts | Reference-based QUAST evaluation, AMR gene checks, and rRNA synteny audits |
 
 ## Assembly pipeline
@@ -160,17 +161,24 @@ spades-rs assemble [OPTIONS] -i <INPUTS>...
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `-i, --inputs <PATHS>` | Paths | Required | Input paired or single-end FASTQ/FASTA files (plain or `.gz`) |
+| `-1, --pe1-1 <FILE>` | Path | None | Forward paired-end reads (standard SPAdes flag) |
+| `-2, --pe1-2 <FILE>` | Path | None | Reverse paired-end reads (standard SPAdes flag) |
+| `-s, --pe1-s <FILE>` | Path | None | Unpaired / single-end reads (standard SPAdes flag) |
+| `--12 <FILE>` | Path | None | Interleaved paired-end reads |
+| `-i, --inputs <PATHS>` | Paths | None | General input FASTQ/FASTA files (plain or `.gz`) |
 | `-o, --output <PATH>` | Path | `contigs.fasta` | Output contigs FASTA file |
 | `-k, --k <INT>` | Integer | `31` | Primary k-mer size (must be odd, <= 127) |
 | `-c, --coverage <FLOAT>` | Float | `5.0` | Minimum unitig k-mer coverage threshold |
 | `-m, --min-len <INT>` | Integer | `200` | Minimum contig length in output (bp) |
 | `-t, --threads <INT>` | Integer | Auto | Worker thread count (defaults to logical CPU cores) |
 | `--error-correct` | Flag | `false` | Run BayesHammer read error correction prior to assembly |
+| `--careful` | Flag | `false` | Run careful mode: BayesHammer + stringent mismatch correction |
 | `--max-memory <GB>` | Float | Auto (80% RAM) | Hard RAM budget ceiling in GB |
 | `--multik <LIST>` | Comma-separated | None | Progressive multi-K sizes (e.g., `21,33,55,77`) |
 | `--nanopore <PATH>` | Path | None | Oxford Nanopore reads for hybrid bridging |
 | `--pacbio <PATH>` | Path | None | PacBio reads for hybrid bridging |
+| `--splitter <PATHS>` | Paths | None | Barcoded linked reads for SpLitteR repeat resolution |
+| `--trusted-contigs <PATHS>` | Paths | None | High-confidence contigs to guide backbone assembly |
 | `--meta` | Flag | `false` | Enable metaSPAdes mode for uneven metagenomic communities |
 | `--plasmid` | Flag | `false` | Enable plasmidSPAdes mode to extract plasmids to `plasmids.fasta` |
 | `--rna` | Flag | `false` | Enable rnaSPAdes mode for transcriptomes and alternative isoforms |
@@ -179,18 +187,19 @@ spades-rs assemble [OPTIONS] -i <INPUTS>...
 
 ## Usage examples
 
-### 1. Standard isolate assembly with error correction
+### 1. Standard isolate assembly with error correction (SPAdes drop-in syntax)
 ```bash
 spades-rs assemble \
-    -i reads_1.fq.gz reads_2.fq.gz \
-    -o contigs.fasta \
+    -1 reads_1.fq.gz \
+    -2 reads_2.fq.gz \
+    --careful \
     -k 31 \
-    --error-correct
+    -o output/
 ```
 Outputs produced:
-* `contigs.fasta`: Primary assembled genomic contigs.
-* `scaffolds.fasta`: Scaffolds linked across repeat gaps.
-* `assembly_graph.gfa`: Graphical Fragment Assembly v1.1 format (compatible with Bandage).
+* `output/contigs.fasta`: Primary assembled genomic contigs.
+* `output/scaffolds.fasta`: Scaffolds linked across repeat gaps.
+* `output/assembly_graph.gfa`: Graphical Fragment Assembly v1.1 format (compatible with Bandage).
 
 ### 2. Specifying a memory ceiling
 By default, `spades-rs` uses up to 80% of detected available RAM. A specific limit can be set manually:
@@ -309,6 +318,16 @@ When using `spades-rs`, please cite both this repository and the original litera
   pages     = {e102},
   year      = {2020},
   doi       = {10.1002/cpbi.102}
+}
+
+@article{tolstoganov2024splitter,
+  author    = {Tolstoganov, Ivan and Bankevich, Anton and Prjibelski, Andrey D.},
+  title     = {{SpLitteR: diploid genome assembly using TELL-Seq linked-reads and assembly graphs}},
+  journal   = {PeerJ},
+  volume    = {12},
+  pages     = {e18050},
+  year      = {2024},
+  doi       = {10.7717/peerj.18050}
 }
 
 @software{spades_rs2026,
