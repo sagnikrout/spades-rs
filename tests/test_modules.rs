@@ -1,11 +1,9 @@
 use hashbrown::HashMap;
 use spades_rs::graph::Unitig;
-use spades_rs::modes::{apply_meta_filter, PlasmidDetector};
+use spades_rs::modes::{apply_meta_filter, PlasmidDetector, RnaEngine, SingleCellNormalizer};
 use spades_rs::paired_info::{PairedInfoIndex, PairedLink};
 use spades_rs::polisher::Polisher;
-use spades_rs::rna::RnaEngine;
 use spades_rs::scaffold::Scaffolder;
-use spades_rs::single_cell::SingleCellNormalizer;
 
 #[test]
 fn test_plasmid_detector() {

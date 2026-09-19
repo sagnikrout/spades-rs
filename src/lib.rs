@@ -15,9 +15,10 @@ pub mod multik;
 pub mod packed_reads;
 pub mod paired_info;
 pub mod polisher;
-pub mod rna;
 pub mod scaffold;
 pub mod simplify;
-pub mod single_cell;
 pub mod spaligner;
 pub mod splitter;
+
+// Re-exports for convenience and backward compatibility
+pub use modes::{apply_meta_filter, PlasmidDetector, RnaEngine, SingleCellNormalizer};

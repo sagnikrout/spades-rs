@@ -48,7 +48,7 @@ The resulting executable is located at `target/release/spades-rs`.
 
 ## Codebase and file structure
 
-The codebase is partitioned into 20 modules in `src/`, automated tests in `tests/`, and verification scripts in `tools/`:
+The codebase is partitioned into 18 library modules in `src/`, automated tests in `tests/`, and verification scripts in `tools/`:
 
 | Path | Primary responsibility | Key algorithms and mechanisms |
 | :--- | :--- | :--- |
@@ -68,9 +68,7 @@ The codebase is partitioned into 20 modules in `src/`, automated tests in `tests
 | [`src/multik.rs`](src/multik.rs) | Multi-K progressive iteration | Progressive unitig-to-reads seeding loop across increasing k-mer sizes |
 | [`src/scaffold.rs`](src/scaffold.rs) | Scaffolding and gap closing | Local de Bruijn path walker with cycle guards, insertion of 'N' bridges |
 | [`src/polisher.rs`](src/polisher.rs) | Consensus base polishing | Multi-threaded consensus voting with `--careful` mismatch correction |
-| [`src/modes.rs`](src/modes.rs) | Metagenomics and plasmid pipelines | metaSPAdes coverage filtering and plasmidSPAdes circularity extraction |
-| [`src/rna.rs`](src/rna.rs) | Transcriptome assembly pipeline | rnaSPAdes alternative isoform preservation and transcript extraction |
-| [`src/single_cell.rs`](src/single_cell.rs) | Single-cell MDA normalization | scSPAdes local coverage normalization for severe amplification bias |
+| [`src/modes.rs`](src/modes.rs) | Specialized biological pipelines | metaSPAdes, plasmidSPAdes, rnaSPAdes, and scSPAdes specialized algorithms |
 | [`src/memory.rs`](src/memory.rs) | Hardware memory governor | Real-time RAM detection, 20% OS headroom protection, dynamic Bloom sizing |
 | [`src/gfa.rs`](src/gfa.rs) | Graph visualization export | Graphical Fragment Assembly (GFA v1.1) exporter for Bandage |
 | [`src/assemble.rs`](src/assemble.rs) | Top-level assembly orchestration | Coordinates ingestion, correction, graph construction, resolution, and output |

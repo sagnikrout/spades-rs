@@ -245,7 +245,7 @@ pub fn run_assembly_with_loaded_reads(
 
     let raw_unitigs = if config.is_sc {
         println!("─── [Single-Cell Mode] Normalizing MDA Coverage Discrepancies ───");
-        crate::single_cell::SingleCellNormalizer::default().normalize_coverage(cdbg.unitigs)
+        crate::modes::SingleCellNormalizer::default().normalize_coverage(cdbg.unitigs)
     } else {
         cdbg.unitigs
     };
@@ -338,7 +338,7 @@ pub fn run_assembly_with_loaded_reads(
 
     let contigs = if config.is_rna {
         println!("─── [RNA Mode] Preserving Alternative Splicing Isoforms ───");
-        crate::rna::RnaEngine::default().process_transcripts(contigs)
+        crate::modes::RnaEngine::default().process_transcripts(contigs)
     } else {
         contigs
     };
@@ -615,7 +615,7 @@ pub fn run_assembly_with_packed_reads(
 
     let raw_unitigs = if config.is_sc {
         println!("─── [Single-Cell Mode] Normalizing MDA Coverage Discrepancies ───");
-        crate::single_cell::SingleCellNormalizer::default().normalize_coverage(cdbg.unitigs)
+        crate::modes::SingleCellNormalizer::default().normalize_coverage(cdbg.unitigs)
     } else {
         cdbg.unitigs
     };
@@ -707,7 +707,7 @@ pub fn run_assembly_with_packed_reads(
 
     let contigs = if config.is_rna {
         println!("─── [RNA Mode] Preserving Alternative Splicing Isoforms ───");
-        crate::rna::RnaEngine::default().process_transcripts(contigs)
+        crate::modes::RnaEngine::default().process_transcripts(contigs)
     } else {
         contigs
     };

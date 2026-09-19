@@ -22,7 +22,7 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 | **Paired Repeat Resolution** | ExSPAnder (Dijkstra extension on paired-end links) | [`src/expander.rs`](src/expander.rs), [`src/paired_info.rs`](src/paired_info.rs) | Insert-size Gaussian distance estimation + confidence-ratio branch pruning |
 | **Gap Closing & Scaffolding** | Bounded de Bruijn walker + N-run insertion | [`src/scaffold.rs`](src/scaffold.rs) | Bidirected local de Bruijn path walker with cycle and branch guards |
 | **Hybrid Repeat Bridging** | Spaligner (seed-and-extend on long reads) | [`src/spaligner.rs`](src/spaligner.rs) | Bidirected port involution (2N port matching) + repeat seed filtering |
-| **Specialized Modes** | `metaSPAdes`, `plasmidSPAdes`, `rnaSPAdes`, `scSPAdes` | [`src/modes.rs`](src/modes.rs), [`src/rna.rs`](src/rna.rs), [`src/single_cell.rs`](src/single_cell.rs) | Built-in CLI flags (`--meta`, `--plasmid`, `--rna`, `--sc`) |
+| **Specialized Modes** | `metaSPAdes`, `plasmidSPAdes`, `rnaSPAdes`, `scSPAdes` | [`src/modes.rs`](src/modes.rs) | Built-in CLI flags (`--meta`, `--plasmid`, `--rna`, `--sc`) |
 
 ---
 
