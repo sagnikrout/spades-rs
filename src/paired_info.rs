@@ -79,7 +79,7 @@ impl PairedInfoIndex {
                     if let (Some((u1, pos1)), Some((u2, pos2))) = (loc1, loc2) {
                         if u1 == u2 {
                             let dist = (pos1 as f64 - pos2 as f64).abs();
-                            if dist > 0.0 && dist < 2000.0 {
+                            if dist > 0.0 && dist < 100_000.0 {
                                 local_dists.push(dist);
                             }
                         } else {
@@ -189,7 +189,7 @@ impl PairedInfoIndex {
                     if let (Some((u1, pos1)), Some((u2, pos2))) = (loc1, loc2) {
                         if u1 == u2 {
                             let dist = (pos1 as f64 - pos2 as f64).abs();
-                            if dist > 0.0 && dist < 2000.0 {
+                            if dist > 0.0 && dist < 100_000.0 {
                                 local_dists.push(dist);
                             }
                         } else {

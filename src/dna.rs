@@ -341,6 +341,52 @@ mod tests {
     }
 
     #[test]
+    fn test_kmer256_revcomp_known_answer() {
+        // RC of "ACGT"^16 + "A" (k=65) is provably "T" + "ACGT"^16.
+        // Proof: RC("ACGT") = "ACGT" (palindrome), so RC("ACGT"^16) = "ACGT"^16.
+        //        Then RC("ACGT"^16 + "A") = RC("A") + RC("ACGT"^16) = "T" + "ACGT"^16.
+        let base: String = "ACGT".repeat(16) + "A";
+        let expected_rc: String = "T".to_string() + &"ACGT".repeat(16);
+        assert_eq!(base.len(), 65);
+        assert_eq!(expected_rc.len(), 65);
+
+        let km = Kmer256::from_bytes(base.as_bytes(), 65).expect("encoding failed");
+        let rc = km.revcomp(65);
+        assert_eq!(
+            rc.to_string(65),
+            expected_rc,
+            "Kmer256::revcomp(k=65) produced wrong result"
+        );
+
+        // Also verify double-RC = identity
+        let rc_rc = rc.revcomp(65);
+        assert_eq!(km, rc_rc, "Kmer256::revcomp(k=65) is not self-inverse");
+
+        // k=96: RC of "ACGT"^24 is "ACGT"^24 (all ACGT blocks are self-RC)
+        let base96: String = "ACGT".repeat(24);
+        assert_eq!(base96.len(), 96);
+        let km96 = Kmer256::from_bytes(base96.as_bytes(), 96).expect("encoding failed k=96");
+        let rc96 = km96.revcomp(96);
+        assert_eq!(
+            rc96.to_string(96),
+            base96,
+            "Kmer256::revcomp(k=96) of ACGT^24 should be identity"
+        );
+
+        // k=127: verify via string-level revcomp reference
+        // "ATCG"*31 = 124 chars; append "ATG" to reach exactly 127.
+        let seq127_str: String = "ATCG".repeat(31) + "ATG";
+        assert_eq!(seq127_str.len(), 127, "template must be exactly 127 chars");
+        let km127 = Kmer256::from_bytes(seq127_str.as_bytes(), 127).expect("encoding failed k=127");
+        let rc127 = km127.revcomp(127);
+        let expected_rc127 = crate::dna::revcomp_bytes(seq127_str.as_bytes());
+        assert_eq!(
+            rc127.to_string(127),
+            std::str::from_utf8(&expected_rc127).unwrap(),
+            "Kmer256::revcomp(k=127) does not match byte-level revcomp reference"
+        );
+    }
+    #[test]
     fn test_kmer256_extend_and_prepend() {
         let template = "ATGCGATCGATCGATAGCTAGCTAGCTAGCTAAGCTAGCTAGCTAGCTAATGCGATCGATCGATAGCTAGCTAGCTAGCTAAGCTAGCTAGCTAGCTAATGCGATCGATCGATAGCTAGCTAGCTAGCTAAGCTAGCTAGCTAGCTAATGCGATCGATCGATAGCTAGCTAGCTAGCTAAGCTAGCTAGCTAGCTA";
         for &k in &[21, 33, 55, 64, 77, 99, 127] {

@@ -55,6 +55,9 @@ impl LocalGapCloser {
         }
 
         let k = self.k;
+        if k == 0 || k > 32 || left_seq.len() < k || right_seq.len() < k {
+            return None;
+        }
         let start_kmer = string_to_kmer(&left_seq[left_seq.len() - k..], k)?;
         let end_kmer = string_to_kmer(&right_seq[..k], k)?;
         let rc_start = crate::dna::revcomp_kmer_u64(start_kmer, k);

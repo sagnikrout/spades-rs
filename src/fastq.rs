@@ -176,13 +176,11 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
         // Discard rest of first header line
         buf_reader.read_until(b'\n', &mut header)?;
 
-        // Sample quality characters to auto-detect Phred offset if filter is enabled
-        let phred_encoding = if let Some(cfg) = filter {
-            cfg.phred_override.unwrap_or(PhredEncoding::Phred33)
-        } else {
-            PhredEncoding::Phred33
-        };
-        let phred_offset = phred_encoding.offset();
+        // Phred offset: use explicit override if set, otherwise auto-detect from the first
+        // quality line encountered (distinguishes Phred+33 from legacy Phred+64 data).
+        let phred_override = filter.and_then(|cfg| cfg.phred_override);
+        let mut phred_offset = phred_override.unwrap_or(PhredEncoding::Phred33).offset();
+        let mut phred_detected = phred_override.is_some();
 
         loop {
             // Line 2: Sequence
@@ -207,6 +205,12 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
             }
             while qual_buf.ends_with(b"\n") || qual_buf.ends_with(b"\r") {
                 qual_buf.pop();
+            }
+
+            // Auto-detect Phred encoding from first non-empty quality line when no override given
+            if !phred_detected && !qual_buf.is_empty() {
+                phred_offset = detect_phred_offset(&qual_buf).offset();
+                phred_detected = true;
             }
 
             if !seq_buf.is_empty() {

@@ -51,21 +51,25 @@ impl TwoTierFilter {
     pub fn insert(&self, kmer: u64) -> bool {
         let h1 = Self::hash_kmer(kmer, 0x517cc1b727220a95) as usize % self.size_bits;
         let h2 = Self::hash_kmer(kmer, 0x9e3779b97f4a7c15) as usize % self.size_bits;
+        let h3 = Self::hash_kmer(kmer, 0x6c62272e07bb0142) as usize % self.size_bits;
 
         let w1 = h1 / 64;
         let b1 = 1u64 << (h1 % 64);
-
         let w2 = h2 / 64;
         let b2 = 1u64 << (h2 % 64);
+        let w3 = h3 / 64;
+        let b3 = 1u64 << (h3 % 64);
 
-        // Check if both bits are set in seen
+        // Check if all three bits are set in seen
         let prev1 = self.seen_bits[w1].fetch_or(b1, Ordering::Relaxed);
         let prev2 = self.seen_bits[w2].fetch_or(b2, Ordering::Relaxed);
+        let prev3 = self.seen_bits[w3].fetch_or(b3, Ordering::Relaxed);
 
-        if (prev1 & b1 != 0) && (prev2 & b2 != 0) {
+        if (prev1 & b1 != 0) && (prev2 & b2 != 0) && (prev3 & b3 != 0) {
             // Already seen at least once! Now mark solid
             self.solid_bits[w1].fetch_or(b1, Ordering::Relaxed);
             self.solid_bits[w2].fetch_or(b2, Ordering::Relaxed);
+            self.solid_bits[w3].fetch_or(b3, Ordering::Relaxed);
             true
         } else {
             false
@@ -77,15 +81,18 @@ impl TwoTierFilter {
     pub fn is_solid(&self, kmer: u64) -> bool {
         let h1 = Self::hash_kmer(kmer, 0x517cc1b727220a95) as usize % self.size_bits;
         let h2 = Self::hash_kmer(kmer, 0x9e3779b97f4a7c15) as usize % self.size_bits;
+        let h3 = Self::hash_kmer(kmer, 0x6c62272e07bb0142) as usize % self.size_bits;
 
         let w1 = h1 / 64;
         let b1 = 1u64 << (h1 % 64);
-
         let w2 = h2 / 64;
         let b2 = 1u64 << (h2 % 64);
+        let w3 = h3 / 64;
+        let b3 = 1u64 << (h3 % 64);
 
         (self.solid_bits[w1].load(Ordering::Relaxed) & b1 != 0)
             && (self.solid_bits[w2].load(Ordering::Relaxed) & b2 != 0)
+            && (self.solid_bits[w3].load(Ordering::Relaxed) & b3 != 0)
     }
 
     #[inline(always)]
@@ -104,19 +111,23 @@ impl TwoTierFilter {
     pub fn insert_kmer256(&self, kmer: Kmer256) -> bool {
         let h1 = Self::hash_kmer256(kmer, 0x517cc1b727220a95) as usize % self.size_bits;
         let h2 = Self::hash_kmer256(kmer, 0x9e3779b97f4a7c15) as usize % self.size_bits;
+        let h3 = Self::hash_kmer256(kmer, 0x6c62272e07bb0142) as usize % self.size_bits;
 
         let w1 = h1 / 64;
         let b1 = 1u64 << (h1 % 64);
-
         let w2 = h2 / 64;
         let b2 = 1u64 << (h2 % 64);
+        let w3 = h3 / 64;
+        let b3 = 1u64 << (h3 % 64);
 
         let prev1 = self.seen_bits[w1].fetch_or(b1, Ordering::Relaxed);
         let prev2 = self.seen_bits[w2].fetch_or(b2, Ordering::Relaxed);
+        let prev3 = self.seen_bits[w3].fetch_or(b3, Ordering::Relaxed);
 
-        if (prev1 & b1 != 0) && (prev2 & b2 != 0) {
+        if (prev1 & b1 != 0) && (prev2 & b2 != 0) && (prev3 & b3 != 0) {
             self.solid_bits[w1].fetch_or(b1, Ordering::Relaxed);
             self.solid_bits[w2].fetch_or(b2, Ordering::Relaxed);
+            self.solid_bits[w3].fetch_or(b3, Ordering::Relaxed);
             true
         } else {
             false
@@ -127,15 +138,18 @@ impl TwoTierFilter {
     pub fn is_solid_kmer256(&self, kmer: Kmer256) -> bool {
         let h1 = Self::hash_kmer256(kmer, 0x517cc1b727220a95) as usize % self.size_bits;
         let h2 = Self::hash_kmer256(kmer, 0x9e3779b97f4a7c15) as usize % self.size_bits;
+        let h3 = Self::hash_kmer256(kmer, 0x6c62272e07bb0142) as usize % self.size_bits;
 
         let w1 = h1 / 64;
         let b1 = 1u64 << (h1 % 64);
-
         let w2 = h2 / 64;
         let b2 = 1u64 << (h2 % 64);
+        let w3 = h3 / 64;
+        let b3 = 1u64 << (h3 % 64);
 
         (self.solid_bits[w1].load(Ordering::Relaxed) & b1 != 0)
             && (self.solid_bits[w2].load(Ordering::Relaxed) & b2 != 0)
+            && (self.solid_bits[w3].load(Ordering::Relaxed) & b3 != 0)
     }
 
     /// Total memory occupied by the filter in bytes.

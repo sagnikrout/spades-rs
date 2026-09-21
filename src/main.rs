@@ -5,6 +5,26 @@ use spades_rs::scaffold::write_scaffolds_fasta;
 use std::path::PathBuf;
 use std::time::Instant;
 
+/// Validates the k-mer size: must be odd, between 11 and 127 (inclusive).
+fn validate_k(s: &str) -> Result<usize, String> {
+    let k: usize = s
+        .parse()
+        .map_err(|_| format!("'{}' is not a valid integer", s))?;
+    if k < 11 {
+        return Err(format!("k={} is too small; minimum is 11", k));
+    }
+    if k > 127 {
+        return Err(format!("k={} exceeds maximum of 127 (Kmer256 limit)", k));
+    }
+    if k.is_multiple_of(2) {
+        return Err(format!(
+            "k={} is even; SPAdes requires an odd k-mer size",
+            k
+        ));
+    }
+    Ok(k)
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "spades-rs")]
 #[command(about = "A Rust-based de novo genome assembler designed for low-memory environments")]
@@ -45,8 +65,8 @@ enum Commands {
         #[arg(short, long, default_value = "contigs.fasta")]
         output: PathBuf,
 
-        /// K-mer size (must be odd and <= 127)
-        #[arg(short, long, default_value_t = 31)]
+        /// K-mer size (must be odd, between 11 and 127)
+        #[arg(short, long, default_value_t = 31, value_parser = validate_k)]
         k: usize,
 
         /// Minimum average coverage threshold for contigs
@@ -136,7 +156,21 @@ fn main() -> anyhow::Result<()> {
         mallopt(M_ARENA_MAX, 2);
     }
 
-    let cli = Cli::parse();
+    let mut args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        let first = &args[1];
+        if first != "assemble"
+            && first != "benchmark"
+            && first != "help"
+            && first != "-h"
+            && first != "--help"
+            && first != "-V"
+            && first != "--version"
+        {
+            args.insert(1, "assemble".to_string());
+        }
+    }
+    let cli = Cli::parse_from(args);
 
     match cli.command {
         Commands::Assemble {
@@ -174,11 +208,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(r1) = pe1_1 {
                 all_inputs.insert(0, r1);
                 if let Some(r2) = pe1_2 {
-                    if all_inputs.len() > 1 {
-                        all_inputs.insert(1, r2);
-                    } else {
-                        all_inputs.push(r2);
-                    }
+                    all_inputs.insert(1, r2);
                 }
             } else if let Some(r2) = pe1_2 {
                 all_inputs.push(r2);

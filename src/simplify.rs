@@ -320,9 +320,12 @@ impl Simplifier {
                 let cov_i = unitigs[i].mean_coverage;
                 let cov_j = unitigs[j].mean_coverage;
 
+                // merged_len = len_i + seq_j.len() = len_i + len_j - k1
+                // (the k-1 overlap is not duplicated in the merged sequence)
+                let merged_len = len_i + seq_j.len();
                 unitigs[i].sequence.extend_from_slice(&seq_j);
                 unitigs[i].mean_coverage =
-                    (cov_i * len_i as f64 + cov_j * len_j as f64) / (len_i + len_j) as f64;
+                    (cov_i * len_i as f64 + cov_j * len_j as f64) / merged_len as f64;
                 unitigs[i].kmers_count += unitigs[j].kmers_count;
 
                 consumed.insert(j);

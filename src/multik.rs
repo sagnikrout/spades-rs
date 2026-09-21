@@ -142,11 +142,15 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
 
     // Rescue valid unitigs from lower-k steps that were dropped due to higher-k coverage thinning
     if !intermediate_unitigs.is_empty() {
+        // Use the actual final k for fingerprinting, capped at 32 because string_to_kmer /
+        // canonical_kmer_u64 pack into u64 and only support k ≤ 32.
+        let rescue_k = config.kmers.last().copied().unwrap_or(31).min(32);
+
         let final_kmers: hashbrown::HashSet<u64> = result
             .contigs
             .iter()
             .flat_map(|u| {
-                let k = 31;
+                let k = rescue_k;
                 if u.sequence.len() < k {
                     vec![]
                 } else {
@@ -163,7 +167,7 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
             .collect();
 
         let mut rescued_count = 0;
-        let k = 31;
+        let k = rescue_k;
         for prior_u in intermediate_unitigs {
             if prior_u.sequence.len() < 300 {
                 continue;

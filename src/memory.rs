@@ -54,20 +54,32 @@ impl MemoryLimits {
     }
 
     /// Computes optimal Bloom filter bits based on memory budget.
+    /// Allocates an optimal ~3-6% of memory to the transient Bloom filter (which is
+    /// dropped immediately after k-mer screening), preventing false-positive noise
+    /// while leaving >90% of budget for graph compaction.
     pub fn optimal_bloom_bits(&self) -> usize {
         let budget_mb = self.max_budget_bytes / (1024 * 1024);
         if budget_mb < 2048 {
-            // Under 2 GB budget: 64 MB per tier (256M bits)
+            // Under 2 GB budget: 32 MB per tier (256M bits = 64 MB total)
             256 * 1024 * 1024
         } else if budget_mb < 8192 {
-            // 2 - 8 GB budget: 128 MB per tier (512M bits) - standard default
+            // 2 - 8 GB budget: 64 MB per tier (512M bits = 128 MB total)
             512 * 1024 * 1024
-        } else if budget_mb < 32768 {
-            // 8 - 32 GB budget: 256 MB per tier (1024M bits)
+        } else if budget_mb < 16384 {
+            // 8 - 16 GB budget: 128 MB per tier (1024M bits = 256 MB total)
             1024 * 1024 * 1024
-        } else {
-            // > 32 GB server: 512 MB per tier (2048M bits)
+        } else if budget_mb < 32768 {
+            // 16 - 32 GB budget: 256 MB per tier (2048M bits = 512 MB total)
             2048 * 1024 * 1024
+        } else if budget_mb < 65536 {
+            // 32 - 64 GB workstation: 512 MB per tier (4096M bits = 1 GB total)
+            4096 * 1024 * 1024
+        } else if budget_mb < 131072 {
+            // 64 - 128 GB server: 1 GB per tier (8192M bits = 2 GB total)
+            8192 * 1024 * 1024
+        } else {
+            // > 128 GB high-memory server: 2 GB per tier (16384M bits = 4 GB total)
+            16384 * 1024 * 1024
         }
     }
 

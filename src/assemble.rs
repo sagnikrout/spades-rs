@@ -145,7 +145,13 @@ pub fn run_assembly_with_loaded_reads(
     }
 
     // Merge thread-local maps by draining and popping to immediately free memory
-    let mut global_counts: HashMap<Kmer256, u32> = HashMap::new();
+    let est_capacity = solid_maps
+        .iter()
+        .map(|m| m.len())
+        .max()
+        .unwrap_or(10_000)
+        .max(10_000);
+    let mut global_counts: HashMap<Kmer256, u32> = HashMap::with_capacity(est_capacity);
     while let Some(mut l_counts) = solid_maps.pop() {
         for (kmer, cnt) in l_counts.drain() {
             *global_counts.entry(kmer).or_insert(0) += cnt;
@@ -171,49 +177,7 @@ pub fn run_assembly_with_loaded_reads(
         }
     }
 
-    // Determine solid k-mer cutoff dynamically (robust noise valley detection)
-    let min_kmer_cov = if config.min_coverage > 5.0 {
-        (config.min_coverage * 0.2).clamp(2.0, 10.0) as u32
-    } else {
-        let mut sample_covs: Vec<u32> = global_counts.values().copied().collect();
-        if sample_covs.len() > 100 {
-            sample_covs.sort_unstable();
-            let top_cov = sample_covs[sample_covs.len() * 95 / 100];
-            if top_cov >= 30 {
-                let max_valley_search = (top_cov / 4).clamp(10, 35) as usize;
-                let mut hist = vec![0usize; max_valley_search + 1];
-                for &c in &sample_covs {
-                    if (c as usize) <= max_valley_search {
-                        hist[c as usize] += 1;
-                    }
-                }
-                let mut valley = 2u32;
-                let mut min_val = usize::MAX;
-                let mut found_valley = false;
-                for (c, &h_val) in hist.iter().enumerate().take(max_valley_search + 1).skip(2) {
-                    if h_val <= min_val {
-                        min_val = h_val;
-                        valley = c as u32;
-                    } else if h_val > min_val * 2 && c > valley as usize + 2 {
-                        found_valley = true;
-                        break;
-                    }
-                }
-                let cutoff = if found_valley { valley } else { 2u32 };
-                if cutoff > 2 {
-                    println!(
-                        "  [Auto-Cutoff] Robust noise valley detected at {}x (Top: {}x)",
-                        cutoff, top_cov
-                    );
-                }
-                cutoff
-            } else {
-                2u32
-            }
-        } else {
-            2u32
-        }
-    };
+    let min_kmer_cov = determine_solid_kmer_cutoff(&global_counts, config.min_coverage);
 
     let solid_kmers: hashbrown::HashSet<Kmer256> = global_counts
         .iter()
@@ -541,49 +505,7 @@ pub fn run_assembly_with_packed_reads(
         }
     }
 
-    // Determine solid k-mer cutoff dynamically (robust noise valley detection)
-    let min_kmer_cov = if config.min_coverage > 5.0 {
-        (config.min_coverage * 0.2).clamp(2.0, 10.0) as u32
-    } else {
-        let mut sample_covs: Vec<u32> = global_counts.values().copied().collect();
-        if sample_covs.len() > 100 {
-            sample_covs.sort_unstable();
-            let top_cov = sample_covs[sample_covs.len() * 95 / 100];
-            if top_cov >= 30 {
-                let max_valley_search = (top_cov / 4).clamp(10, 35) as usize;
-                let mut hist = vec![0usize; max_valley_search + 1];
-                for &c in &sample_covs {
-                    if (c as usize) <= max_valley_search {
-                        hist[c as usize] += 1;
-                    }
-                }
-                let mut valley = 2u32;
-                let mut min_val = usize::MAX;
-                let mut found_valley = false;
-                for (c, &h_val) in hist.iter().enumerate().take(max_valley_search + 1).skip(2) {
-                    if h_val <= min_val {
-                        min_val = h_val;
-                        valley = c as u32;
-                    } else if h_val > min_val * 2 && c > valley as usize + 2 {
-                        found_valley = true;
-                        break;
-                    }
-                }
-                let cutoff = if found_valley { valley } else { 2u32 };
-                if cutoff > 2 {
-                    println!(
-                        "  [Auto-Cutoff] Robust noise valley detected at {}x (Top: {}x)",
-                        cutoff, top_cov
-                    );
-                }
-                cutoff
-            } else {
-                2u32
-            }
-        } else {
-            2u32
-        }
-    };
+    let min_kmer_cov = determine_solid_kmer_cutoff(&global_counts, config.min_coverage);
 
     let solid_kmers: hashbrown::HashSet<Kmer256> = global_counts
         .iter()
@@ -904,4 +826,50 @@ pub fn write_contigs_fasta<P: AsRef<Path>>(
     }
     writer.flush()?;
     Ok(())
+}
+
+/// Determines the minimum k-mer coverage threshold dynamically using robust noise valley detection.
+fn determine_solid_kmer_cutoff(global_counts: &HashMap<Kmer256, u32>, min_coverage: f64) -> u32 {
+    if min_coverage > 5.0 {
+        (min_coverage * 0.2).clamp(2.0, 10.0) as u32
+    } else {
+        let mut sample_covs: Vec<u32> = global_counts.values().copied().collect();
+        if sample_covs.len() > 100 {
+            sample_covs.sort_unstable();
+            let top_cov = sample_covs[sample_covs.len() * 95 / 100];
+            if top_cov >= 30 {
+                let max_valley_search = (top_cov / 4).clamp(10, 35) as usize;
+                let mut hist = vec![0usize; max_valley_search + 1];
+                for &c in &sample_covs {
+                    if (c as usize) <= max_valley_search {
+                        hist[c as usize] += 1;
+                    }
+                }
+                let mut valley = 2u32;
+                let mut min_val = usize::MAX;
+                let mut found_valley = false;
+                for (c, &h_val) in hist.iter().enumerate().take(max_valley_search + 1).skip(2) {
+                    if h_val <= min_val {
+                        min_val = h_val;
+                        valley = c as u32;
+                    } else if h_val > min_val * 2 && c > valley as usize + 2 {
+                        found_valley = true;
+                        break;
+                    }
+                }
+                let cutoff = if found_valley { valley } else { 2u32 };
+                if cutoff > 2 {
+                    println!(
+                        "  [Auto-Cutoff] Robust noise valley detected at {}x (Top: {}x)",
+                        cutoff, top_cov
+                    );
+                }
+                cutoff
+            } else {
+                2u32
+            }
+        } else {
+            2u32
+        }
+    }
 }

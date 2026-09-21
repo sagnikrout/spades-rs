@@ -4,7 +4,7 @@
 //! and corrects isolated single-nucleotide errors using 2-bit constant-time Hamming distance.
 
 use crate::bloom::TwoTierFilter;
-use crate::dna::{canonical_kmer_u64, string_to_kmer};
+use crate::dna::Kmer256;
 use rayon::prelude::*;
 
 /// Computes the number of nucleotide mismatches between two 2-bit packed sequences.
@@ -45,29 +45,52 @@ impl ErrorCorrector {
                 let mut modified = false;
 
                 for i in 0..=(seq.len() - k) {
-                    if let Some(km) = string_to_kmer(&seq[i..i + k], k) {
-                        let (can, _) = canonical_kmer_u64(km, k);
-                        if !filter.is_solid(can) {
-                            // Non-solid k-mer detected: attempt single-base correction
-                            // Try substituting bases along the k-mer
-                            'corr: for offset in 0..k {
+                    if let Some(km) = Kmer256::from_bytes(&seq[i..i + k], k) {
+                        let (can, _) = km.canonical(k);
+                        if !filter.is_solid_kmer256(can) {
+                            // Non-solid k-mer detected: evaluate single-base substitutions
+                            // Find the substitution that maximizes solid k-mer coverage across the overlapping window
+                            let mut best_sub: Option<(usize, u8)> = None;
+                            let mut max_solid_gain = 0;
+
+                            for offset in 0..k {
                                 let orig_base = seq[i + offset];
                                 for &cand_base in b"ACGT" {
                                     if cand_base == orig_base {
                                         continue;
                                     }
                                     seq[i + offset] = cand_base;
-                                    if let Some(cand_km) = string_to_kmer(&seq[i..i + k], k) {
-                                        let (cand_can, _) = canonical_kmer_u64(cand_km, k);
-                                        if filter.is_solid(cand_can) {
-                                            // Found a solid consensus match!
-                                            modified = true;
-                                            break 'corr;
+                                    if let Some(cand_km) = Kmer256::from_bytes(&seq[i..i + k], k) {
+                                        let (cand_can, _) = cand_km.canonical(k);
+                                        if filter.is_solid_kmer256(cand_can) {
+                                            // Count how many overlapping k-mers are solid with this candidate base
+                                            let pos = i + offset;
+                                            let start_scan = pos.saturating_sub(k - 1);
+                                            let end_scan = pos.min(seq.len() - k);
+                                            let mut solid_count = 0;
+                                            for s in start_scan..=end_scan {
+                                                if let Some(surr_km) =
+                                                    Kmer256::from_bytes(&seq[s..s + k], k)
+                                                {
+                                                    let (surr_can, _) = surr_km.canonical(k);
+                                                    if filter.is_solid_kmer256(surr_can) {
+                                                        solid_count += 1;
+                                                    }
+                                                }
+                                            }
+                                            if solid_count > max_solid_gain {
+                                                max_solid_gain = solid_count;
+                                                best_sub = Some((offset, cand_base));
+                                            }
                                         }
                                     }
+                                    seq[i + offset] = orig_base;
                                 }
-                                // Revert if not fixed
-                                seq[i + offset] = orig_base;
+                            }
+
+                            if let Some((offset, cand_base)) = best_sub {
+                                seq[i + offset] = cand_base;
+                                modified = true;
                             }
                         }
                     }
