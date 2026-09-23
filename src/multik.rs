@@ -146,25 +146,19 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
         // canonical_kmer_u64 pack into u64 and only support k ≤ 32.
         let rescue_k = config.kmers.last().copied().unwrap_or(31).min(32);
 
-        let final_kmers: hashbrown::HashSet<u64> = result
-            .contigs
-            .iter()
-            .flat_map(|u| {
-                let k = rescue_k;
-                if u.sequence.len() < k {
-                    vec![]
-                } else {
-                    let mut kmers = Vec::with_capacity(u.sequence.len() - k + 1);
-                    for i in 0..=(u.sequence.len() - k) {
-                        if let Some(km) = crate::dna::string_to_kmer(&u.sequence[i..i + k], k) {
-                            let (can, _) = crate::dna::canonical_kmer_u64(km, k);
-                            kmers.push(can);
-                        }
+        let mut final_kmers: hashbrown::HashSet<u64> = hashbrown::HashSet::new();
+        for u in &result.contigs {
+            if u.sequence.len() >= rescue_k {
+                for i in 0..=(u.sequence.len() - rescue_k) {
+                    if let Some(km) =
+                        crate::dna::string_to_kmer(&u.sequence[i..i + rescue_k], rescue_k)
+                    {
+                        let (can, _) = crate::dna::canonical_kmer_u64(km, rescue_k);
+                        final_kmers.insert(can);
                     }
-                    kmers
                 }
-            })
-            .collect();
+            }
+        }
 
         let mut rescued_count = 0;
         let k = rescue_k;

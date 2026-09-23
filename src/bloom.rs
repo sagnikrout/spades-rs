@@ -34,65 +34,17 @@ impl TwoTierFilter {
         }
     }
 
-    /// Fast 64-bit integer mix hash (Murmur / SplitMix).
-    #[inline(always)]
-    fn hash_kmer(mut x: u64, seed: u64) -> u64 {
-        x ^= seed;
-        x = x.wrapping_mul(0xff51afd7ed558ccd);
-        x ^= x >> 33;
-        x = x.wrapping_mul(0xc4ceb9fe1a85ec53);
-        x ^= x >> 33;
-        x
-    }
-
-    /// Observes a k-mer. If already observed, marks it as 'solid' (coverage >= 2).
+    /// Observes a 64-bit k-mer. If already observed, marks it as 'solid' (coverage >= 2).
     /// Returns true if it was already marked solid.
     #[inline(always)]
     pub fn insert(&self, kmer: u64) -> bool {
-        let h1 = Self::hash_kmer(kmer, 0x517cc1b727220a95) as usize % self.size_bits;
-        let h2 = Self::hash_kmer(kmer, 0x9e3779b97f4a7c15) as usize % self.size_bits;
-        let h3 = Self::hash_kmer(kmer, 0x6c62272e07bb0142) as usize % self.size_bits;
-
-        let w1 = h1 / 64;
-        let b1 = 1u64 << (h1 % 64);
-        let w2 = h2 / 64;
-        let b2 = 1u64 << (h2 % 64);
-        let w3 = h3 / 64;
-        let b3 = 1u64 << (h3 % 64);
-
-        // Check if all three bits are set in seen
-        let prev1 = self.seen_bits[w1].fetch_or(b1, Ordering::Relaxed);
-        let prev2 = self.seen_bits[w2].fetch_or(b2, Ordering::Relaxed);
-        let prev3 = self.seen_bits[w3].fetch_or(b3, Ordering::Relaxed);
-
-        if (prev1 & b1 != 0) && (prev2 & b2 != 0) && (prev3 & b3 != 0) {
-            // Already seen at least once! Now mark solid
-            self.solid_bits[w1].fetch_or(b1, Ordering::Relaxed);
-            self.solid_bits[w2].fetch_or(b2, Ordering::Relaxed);
-            self.solid_bits[w3].fetch_or(b3, Ordering::Relaxed);
-            true
-        } else {
-            false
-        }
+        self.insert_kmer256(Kmer256(kmer as u128, 0))
     }
 
-    /// Checks if a k-mer is considered solid (seen at least twice).
+    /// Checks if a 64-bit k-mer is considered solid (seen at least twice).
     #[inline(always)]
     pub fn is_solid(&self, kmer: u64) -> bool {
-        let h1 = Self::hash_kmer(kmer, 0x517cc1b727220a95) as usize % self.size_bits;
-        let h2 = Self::hash_kmer(kmer, 0x9e3779b97f4a7c15) as usize % self.size_bits;
-        let h3 = Self::hash_kmer(kmer, 0x6c62272e07bb0142) as usize % self.size_bits;
-
-        let w1 = h1 / 64;
-        let b1 = 1u64 << (h1 % 64);
-        let w2 = h2 / 64;
-        let b2 = 1u64 << (h2 % 64);
-        let w3 = h3 / 64;
-        let b3 = 1u64 << (h3 % 64);
-
-        (self.solid_bits[w1].load(Ordering::Relaxed) & b1 != 0)
-            && (self.solid_bits[w2].load(Ordering::Relaxed) & b2 != 0)
-            && (self.solid_bits[w3].load(Ordering::Relaxed) & b3 != 0)
+        self.is_solid_kmer256(Kmer256(kmer as u128, 0))
     }
 
     #[inline(always)]

@@ -219,11 +219,14 @@ impl Polisher {
             .collect();
 
         let num_reads = packed.len();
-        let indices: Vec<usize> = (0..num_reads).collect();
+        let chunk_size = 4096;
+        let num_chunks = num_reads.div_ceil(chunk_size);
 
-        indices.par_chunks(4096).for_each(|chunk| {
+        (0..num_chunks).into_par_iter().for_each(|c_idx| {
+            let start = c_idx * chunk_size;
+            let end = (start + chunk_size).min(num_reads);
             let mut read = Vec::with_capacity(512);
-            for &idx in chunk {
+            for idx in start..end {
                 packed.get_read(idx, &mut read);
                 if read.len() < k {
                     continue;

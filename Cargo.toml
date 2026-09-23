@@ -22,7 +22,6 @@ rayon = "1.10"
 flate2 = "1.0"
 hashbrown = { version = "0.15", features = ["rayon"] }
 clap = { version = "4.5", features = ["derive"] }
-memmap2 = "0.9"
 anyhow = "1.0"
 
 [profile.release]
