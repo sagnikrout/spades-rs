@@ -14,7 +14,7 @@ For developers and researchers intimate with the SPAdes C++ codebase (`spades-co
 | Pipeline Stage | Classical SPAdes Architecture | `spades-rs` Implementation | Algorithmic Optimization |
 | :--- | :--- | :--- | :--- |
 | **Error Correction** | BayesHammer (Hamming graph clustering, Q-score weighting) | [`src/hammer.rs`](src/hammer.rs) | Parallel bit-parallel Hamming distance search with quality-aware voting |
-| **k-mer Counting** | Disk-backed sorting / large hash tables (10–30 GB) | [`src/bloom.rs`](src/bloom.rs) | Two-Tier Atomic Bloom filter (512 MB fixed bitset, zero disk spills) |
+| **k-mer Counting** | Disk-backed sorting / large hash tables (10–30 GB) | [`src/bloom.rs`](src/bloom.rs) | Two-Tier Atomic Bloom filter (dynamically scaled 64 MB – 4 GB, zero disk spills) |
 | **Read Storage** | String vectors / serialized binary files | [`src/packed_reads.rs`](src/packed_reads.rs) | Cache-aligned 2-bit packed representation (8.0M reads in 352 MB RAM) |
 | **de Bruijn Graph** | Custom pointer-heavy directed multigraph | [`src/graph.rs`](src/graph.rs), [`src/dna.rs`](src/dna.rs) | Compact unitigs with 64/256-bit SIMD canonical k-mer arithmetic |
 | **Graph Simplification** | Tip clipping, bulge popping, O(N^2) merge passes | [`src/simplify.rs`](src/simplify.rs) | Length-aware tip clipping (>2k preserved) + O(N) batched disjoint stitching |
@@ -434,8 +434,11 @@ Rather than imposing an arbitrary, hardcoded allocation limit (such as 4.5 GB), 
 * **Dynamic Bloom Sizing**:
   * Budget < 2 GB: 256M bits (64 MB total Bloom filter shield).
   * 2 GB <= Budget < 8 GB: 512M bits (128 MB total Bloom filter shield).
-  * 8 GB <= Budget < 32 GB: 1,024M bits (256 MB total Bloom filter shield).
-  * Budget >= 32 GB: 2,048M bits (512 MB total Bloom filter shield).
+  * 8 GB <= Budget < 16 GB: 1,024M bits (256 MB total Bloom filter shield).
+  * 16 GB <= Budget < 32 GB: 2,048M bits (512 MB total Bloom filter shield).
+  * 32 GB <= Budget < 64 GB: 4,096M bits (1 GB total Bloom filter shield).
+  * 64 GB <= Budget < 128 GB: 8,192M bits (2 GB total Bloom filter shield).
+  * Budget >= 128 GB: 16,384M bits (4 GB total Bloom filter shield).
 * **Active Physical RSS Monitoring**: Periodically samples resident set size (RSS) directly from `/proc/self/status` (`VmRSS`) without invoking virtual address space restrictions (`RLIMIT_AS`), ensuring physical RAM is accurately tracked.
 * **Proactive Heap Compaction**: Calls `malloc_trim(0)` immediately following filter deallocation and stage transitions.
 * **User Override**: Users can explicitly set any custom hard memory ceiling via the `--max-memory <GB>` CLI flag (e.g. `--max-memory 4.5` or `--max-memory 32.0`).

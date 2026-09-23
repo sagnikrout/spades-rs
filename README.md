@@ -68,7 +68,7 @@ The codebase is partitioned into 18 library modules in `src/`, automated tests i
 | [`src/main.rs`](src/main.rs) | CLI entry point and thread pool configuration | Argument parsing (`clap`), Rayon thread pool initialization |
 | [`src/lib.rs`](src/lib.rs) | Crate root and architecture checks | Compile-time 64-bit pointer assertion, module re-exports |
 | [`src/dna.rs`](src/dna.rs) | Nucleotide encoding and k-mer hashing | 2-bit representation (A=0, C=1, G=2, T=3), 64-bit and 256-bit canonical k-mers |
-| [`src/bloom.rs`](src/bloom.rs) | Memory shield for k-mer counting | Lock-free Two-Tier Atomic Bloom filter (512 MB fixed bitset) |
+| [`src/bloom.rs`](src/bloom.rs) | Memory shield for k-mer counting | Lock-free Two-Tier Atomic Bloom filter (dynamically scaled 64 MB – 4 GB based on RAM budget) |
 | [`src/fastq.rs`](src/fastq.rs) | FASTQ and FASTA sequence ingestion | Multi-threaded streaming parser, Phred-33/64 auto-detection, quality trimming |
 | [`src/packed_reads.rs`](src/packed_reads.rs) | Compact read storage | Cache-aligned 2-bit packed array (8.0M reads in 352 MB RAM) |
 | [`src/hammer.rs`](src/hammer.rs) | Read error correction | BayesHammer algorithm: bit-parallel Hamming clustering and quality voting |
@@ -166,7 +166,11 @@ Evaluated against NCBI Reference `NC_000913.3` (4.64 Mb):
 
 ## Command-line options
 
-```
+```bash
+# Direct invocation (assemble is the transparent default)
+spades-rs -1 <FORWARD> -2 <REVERSE> -o <OUTPUT_DIR>
+
+# Or explicit subcommand
 spades-rs assemble [OPTIONS] -i <INPUTS>...
 ```
 
