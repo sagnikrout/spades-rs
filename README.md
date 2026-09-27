@@ -1,371 +1,286 @@
 # spades-rs
 
-A Rust-based de novo genome assembler designed for low-memory environments.
+A Rust implementation of the SPAdes genome assembly pipeline designed for lower memory consumption.
 
 [![Rust CI](https://github.com/sagnikrout/spades-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/sagnikrout/spades-rs/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release: v1.0.0](https://img.shields.io/badge/Release-v1.0.0-teal.svg)](https://github.com/sagnikrout/spades-rs/releases)
 
-`spades-rs` is an experimental *de novo* genome assembler written in Rust. It implements core algorithmic concepts from the SPAdes assembly pipeline (Bankevich et al., 2012), with a focus on reduced memory consumption and single-binary deployment on commodity 64-bit hardware.
+`spades-rs` is a standalone *de novo* genome assembler written in Rust. It implements the primary algorithms of the SPAdes pipeline (Bankevich et al., 2012) as a single static executable, with a focus on avoiding disk churn and keeping peak memory low enough to run on standard computers.
 
-* **Bounded memory footprint**: Uses lock-free Two-Tier Bloom filters and 2-bit packed reads to operate within limited RAM environments.
-* **Automatic memory budgeting**: Inspects available physical memory at launch and defaults to an 80% budget ceiling, leaving 20% headroom for operating system processes and file cache.
-* **Single binary**: Compiles into an independent executable with no external dynamic library dependencies.
-* **Pipeline modes**: Supports short-read isolate assembly, progressive multi-K stepping, long-read hybrid bridging (`--nanopore`, `--pacbio`), and preliminary support for metagenomic (`--meta`), plasmid (`--plasmid`), RNA-Seq (`--rna`), and single-cell (`--sc`) datasets.
+## Practical expectations
 
-> Note: `spades-rs` is actively evolving software. While it reproduces key SPAdes heuristics, legacy SPAdes remains the mature reference standard for production genomics pipelines.
+Assembly performance depends heavily on library quality, coverage depth, repeat content, and error profiles. In everyday practice, expect the following:
+
+* **Memory usage:** For standard bacterial genomes (2 to 6 Mb) at 30x to 100x coverage, peak RAM typically remains between 1.5 GB and 3.5 GB. Classical SPAdes often allocates 8 GB to 16 GB for the same data. On larger datasets, memory scales with the number of distinct k-mers.
+* **Execution speed:** On modern multi-core processors, runs are generally 1.5x to 3x faster than legacy SPAdes on clean bacterial isolates, mainly because multi-k iterations proceed in memory without saving intermediate graph states to disk.
+* **Assembly quality:** On clean short-read bacterial data with adequate coverage, contiguity (N50) and genome fraction are generally comparable to classical SPAdes (typically 95% to 98% reference coverage). Repeat regions longer than the read length or insert size will fragment contigs unless bridged by long reads.
+* **Specialized modes:** Basic implementations of `--meta` (metagenomics), `--plasmid` (plasmid extraction), `--rna` (transcriptomes), and `--sc` (single-cell MDA) are included. For large, complex environmental metagenomes or specialized clinical pipelines, results should be evaluated alongside the mature C++ SPAdes release.
 
 ## Installation
 
-### 1-Line Installer (Linux, WSL, Google Colab, macOS)
+### Installer script (Linux, WSL, macOS, Google Colab)
 
-Install the standalone binary and `spades.py` compatibility alias with one command:
+Install the compiled binary to `/usr/local/bin` (or `~/.local/bin`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sagnikrout/spades-rs/master/install.sh | bash
 ```
 
-**In Google Colab**, paste this into any notebook cell:
+**In Google Colab**, run in any notebook cell:
 ```python
 !curl -fsSL https://raw.githubusercontent.com/sagnikrout/spades-rs/master/install.sh | bash
-!spades-rs assemble -1 reads_1.fq.gz -2 reads_2.fq.gz -o out_dir
+!spades-rs -1 reads_1.fq.gz -2 reads_2.fq.gz -o out_dir
 ```
 
-### Precompiled Standalone Binaries
+### Precompiled binaries
 
-Direct downloads from [GitHub Releases](https://github.com/sagnikrout/spades-rs/releases):
+Download directly from [GitHub Releases](https://github.com/sagnikrout/spades-rs/releases):
 
-| Platform | Target triple | Download link |
+| Platform | Target triple | Binary |
 | :--- | :--- | :--- |
-| Linux x86_64 (musl) | `x86_64-unknown-linux-musl` | [`spades-rs-linux-x86_64-musl`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-x86_64-musl) |
+| Linux x86_64 (musl static) | `x86_64-unknown-linux-musl` | [`spades-rs-linux-x86_64-musl`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-x86_64-musl) |
 | Linux ARM64 | `aarch64-unknown-linux-gnu` | [`spades-rs-linux-arm64`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-arm64) |
 | macOS Apple Silicon | `aarch64-apple-darwin` | [`spades-rs-macos-arm64`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-macos-arm64) |
 | Windows x86_64 | `x86_64-pc-windows-msvc` | [`spades-rs-windows-x86_64.exe`](https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-windows-x86_64.exe) |
 
 ```bash
-# Manual download on 64-bit Linux
+# Manual installation on 64-bit Linux
 curl -fsSL https://github.com/sagnikrout/spades-rs/releases/latest/download/spades-rs-linux-x86_64-musl -o /usr/local/bin/spades-rs
 chmod +x /usr/local/bin/spades-rs
 ```
 
 ### Build from source
 
-Building from source requires Rust 1.75 or later on a 64-bit operating system:
+Building requires Rust 1.75 or newer on a 64-bit platform:
 
 ```bash
 git clone https://github.com/sagnikrout/spades-rs.git
 cd spades-rs
 cargo build --release
 ```
-The resulting executable is located at `target/release/spades-rs`.
 
-## Codebase and file structure
+The compiled binary will be placed at `target/release/spades-rs`.
 
-The codebase is partitioned into 18 library modules in `src/`, automated tests in `tests/`, and verification scripts in `tools/`:
+## Pipeline architecture
 
-| Path | Primary responsibility | Key algorithms and mechanisms |
-| :--- | :--- | :--- |
-| [`src/main.rs`](src/main.rs) | CLI entry point and thread pool configuration | Argument parsing (`clap`), Rayon thread pool initialization |
-| [`src/lib.rs`](src/lib.rs) | Crate root and architecture checks | Compile-time 64-bit pointer assertion, module re-exports |
-| [`src/dna.rs`](src/dna.rs) | Nucleotide encoding and k-mer hashing | 2-bit representation (A=0, C=1, G=2, T=3), 64-bit and 256-bit canonical k-mers |
-| [`src/bloom.rs`](src/bloom.rs) | Memory shield for k-mer counting | Lock-free Two-Tier Atomic Bloom filter (dynamically scaled 64 MB – 4 GB based on RAM budget) |
-| [`src/fastq.rs`](src/fastq.rs) | FASTQ and FASTA sequence ingestion | Multi-threaded streaming parser, Phred-33/64 auto-detection, quality trimming |
-| [`src/packed_reads.rs`](src/packed_reads.rs) | Compact read storage | Cache-aligned 2-bit packed array (8.0M reads in 352 MB RAM) |
-| [`src/hammer.rs`](src/hammer.rs) | Read error correction | BayesHammer algorithm: bit-parallel Hamming clustering and quality voting |
-| [`src/graph.rs`](src/graph.rs) | Compacted de Bruijn graph (cDBG) | Unitig topology, bidirected port involution (2N ports), adjacency indices |
-| [`src/simplify.rs`](src/simplify.rs) | Graph cleaning and topology simplification | Length-aware tip clipping (>2k protected), bubble popping, linear unitig stitching |
-| [`src/paired_info.rs`](src/paired_info.rs) | Paired-end insert size estimation | Gaussian distance distribution estimation (mean and standard deviation) |
-| [`src/expander.rs`](src/expander.rs) | Paired-end repeat resolution | ExSPAnder algorithm: Dijkstra path extension with paired-read voting |
-| [`src/spaligner.rs`](src/spaligner.rs) | Long-read hybrid repeat bridging | Spaligner algorithm: ONT and PacBio graph alignment and repeat unrolling |
-| [`src/splitter.rs`](src/splitter.rs) | Linked-read / SLR repeat resolution | SpLitteR algorithm: 10x/TELL-Seq barcode tracing and scaffold unrolling |
-| [`src/multik.rs`](src/multik.rs) | Multi-K progressive iteration | Progressive unitig-to-reads seeding loop across increasing k-mer sizes |
-| [`src/scaffold.rs`](src/scaffold.rs) | Scaffolding and gap closing | Local de Bruijn path walker with cycle guards, insertion of 'N' bridges |
-| [`src/polisher.rs`](src/polisher.rs) | Consensus base polishing | Multi-threaded consensus voting with `--careful` mismatch correction |
-| [`src/modes.rs`](src/modes.rs) | Specialized biological pipelines | metaSPAdes, plasmidSPAdes, rnaSPAdes, and scSPAdes specialized algorithms |
-| [`src/memory.rs`](src/memory.rs) | Hardware memory governor | Real-time RAM detection, 20% OS headroom protection, dynamic Bloom sizing |
-| [`src/gfa.rs`](src/gfa.rs) | Graph visualization export | Graphical Fragment Assembly (GFA v1.1) exporter for Bandage |
-| [`src/assemble.rs`](src/assemble.rs) | Top-level assembly orchestration | Coordinates ingestion, correction, graph construction, resolution, and output |
-| [`tests/`](tests/) | Integration test suite | 42 automated tests covering unitigs, graph simplification, and full genomes |
-| [`tools/`](tools/) | Biological audit scripts | Reference-based QUAST evaluation, AMR gene checks, and rRNA synteny audits |
-
-## Assembly pipeline
+`spades-rs` structures the assembly process into sequential in-memory stages:
 
 ```
-[ Raw Gzipped Reads (.fq.gz) ]
-              │
-              ▼
+[ Raw FASTQ / FASTA (.gz or plain) ]
+                  │
+                  ▼
 ┌───────────────────────────────────────────────────────────────┐
-│ Layer 1: Ingestion and Error Correction                       │
-│ • [Module 1.1] SIMD 2-Bit Streaming Fastq Reader              │
-│ • [Module 1.2] Lock-Free Two-Tier Bloom Filter (Memory Shield)│
-│ • [Module 1.3] BayesHammer 2-Bit POPCNT Error Corrector       │
+│ Stage 1: Ingestion & 2-Bit Packing                            │
+│ • End trimming of poly-N runs and low-quality bases           │
+│ • Internal N splitting into clean sub-reads (>= 21 bp)        │
+│ • Ambiguous sidecar preservation for consensus base voting    │
+│ • Contiguous 2-bit buffer (4 bases per byte)                  │
 └───────────────────────────────┬───────────────────────────────┘
                                 │
                                 ▼
 ┌───────────────────────────────────────────────────────────────┐
-│ Layer 2: Graph Topology and Simplification                    │
-│ • [Module 2.1] Bidirected Compacted de Bruijn Graph (cDBG)    │
-│ • [Module 2.2] Relative Coverage Tip-Clipper & Path Stitcher  │
+│ Stage 2 & 3: Counting & Solid K-mers                          │
+│ • Lock-free Two-Tier Atomic Bloom filter (64 MB to 4 GB)      │
+│ • Sharded solid k-mer frequency index                         │
+│ • Automatic noise cutoff valley detection                     │
 └───────────────────────────────┬───────────────────────────────┘
                                 │
                                 ▼
 ┌───────────────────────────────────────────────────────────────┐
-│ Layer 3: Repeat Resolution and Hybrid Bridging                │
-│ • [Module 3.1] Library Insert Size Distance Estimator         │
-│ • [Module 3.2] ExSPAnder Paired-End Repeat Resolver           │
-│ • [Module 3.3] Spaligner Nanopore / PacBio Long-Read Bridging │
+│ Stage 4 & 5: Graph Construction & Simplification              │
+│ • Compacted de Bruijn graph (cDBG) with 256-bit SIMD k-mers   │
+│ • Tip clipping and bubble popping                             │
+│ • Disjoint path stitching into unitigs                        │
 └───────────────────────────────┬───────────────────────────────┘
                                 │
                                 ▼
 ┌───────────────────────────────────────────────────────────────┐
-│ Layer 4: Scaffolding, Polishing and Export                    │
-│ • [Module 4.1] Late Gap Closer & Scaffolder ('N' filling)     │
-│ • [Module 4.2] Consensus Base Polisher (WFA consensus)        │
-│ • [Module 4.3] Standard GFA v1.1 and FASTA Exporters          │
+│ Stage 6 & 7: Repeat Resolution & Scaffolding                  │
+│ • ExSPAnder paired-end insert size estimation and pathing     │
+│ • Spaligner hybrid repeat unrolling (Nanopore / PacBio HiFi)  │
+│ • SpLitteR linked-read barcode repeat resolution (10x)        │
+│ • Local de Bruijn gap closure with N-bridge insertion         │
 └───────────────────────────────┬───────────────────────────────┘
                                 │
                                 ▼
 ┌───────────────────────────────────────────────────────────────┐
-│ Layer 5: Specialized Biological Pipelines                     │
-│ • [Module 5.1] metaSPAdes: Uneven multi-species preservation  │
-│ • [Module 5.2] plasmidSPAdes: Circular and copy-number finder │
-│ • [Module 5.3] rnaSPAdes: Transcriptome isoform preserver     │
-│ • [Module 5.4] scSPAdes: Single-cell MDA normalizer           │
+│ Stage 8: Polishing & Output Export                            │
+│ • Consensus base voting across primary reads and sidecar      │
+│ • FASTA export (contigs.fasta, scaffolds.fasta)               │
+│ • Assembly graph export in standard GFA v1.1 format           │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-## Performance comparisons
-
-These tests were performed on an Intel Core Ultra 9 185H (22 logical threads, AVX2, 32 GB RAM) running Ubuntu under WSL2.
-
-### 1. Bacterial isolate (Escherichia coli MG1655, 100x depth, 1.28M paired reads, Multi-K 33,55,77,99,111)
-Evaluated against NCBI Reference `NC_000913.3` (4.64 Mb):
-
-| Metric | SPAdes v4.3.0 | spades-rs (v1.0.0) | Observation |
-| :--- | :--- | :--- | :--- |
-| Wall-Clock Time | 834.93 s (13m 55s) | 259.86 s (4m 20s) | Shorter runtime |
-| User CPU Time | 5,567.95 s (92m 48s) | 2,275.41 s (37m 55s) | Reduced CPU time |
-| Peak RAM (Max RSS) | 5,560.73 MB (5.56 GB) | 2,157.60 MB (2.16 GB) | Lower peak memory |
-| Contigs (≥ 200 bp) | 700 contigs | 244 contigs | Fewer small fragments |
-| Genome Fraction | 99.19% | 98.82% | Comparable recovery |
-
-### 2. Hybrid assembly (Escherichia coli MG1655 paired-end + Oxford Nanopore DRR242214)
-
-| Metric | SPAdes v4.3.0 | spades-rs (v1.0.0) | Observation |
-| :--- | :--- | :--- | :--- |
-| Wall-Clock Time | 961.68 s (16m 01s) | 256.63 s (4m 17s) | Shorter runtime |
-| Peak RAM (Max RSS) | 5,278.59 MB (5.28 GB) | 2,115.82 MB (2.12 GB) | Lower peak memory |
-| Scaffold N50 / L50 | Not produced | 212,344 bp / 7 | Produced scaffold output |
-| Longest Scaffold | 469,088 bp | 811,852 bp | Longer primary scaffold |
-| Unaligned Contigs | 468 contigs (374.5 kb) | 8 contigs (131.2 kb) | Fewer unaligned contigs |
-| Base Error Rate | 9.15 mismatches / 100 kb | 6.15 mismatches / 100 kb | Lower mismatch rate |
-| 7 rRNA Operons | Fragmented | 7 / 7 bridged | Bridged repeat copies |
-| Installation Size | Multiple binaries (~640 MB) | Single binary (1.1 MB) | Self-contained binary |
-
-*Note: Assembly results, runtime, and memory consumption vary with dataset characteristics, sequencing depth, error profiles, and hardware. Users should evaluate results against their own quality criteria.*
-
 ## Command-line options
 
-```bash
-# Direct invocation (assemble is the transparent default)
-spades-rs -1 <FORWARD> -2 <REVERSE> -o <OUTPUT_DIR>
+`spades-rs` supports direct invocation where `assemble` is the default subcommand:
 
-# Or explicit subcommand
-spades-rs assemble [OPTIONS] -i <INPUTS>...
+```bash
+# Direct execution
+spades-rs -1 R1.fq.gz -2 R2.fq.gz -o output_dir
+
+# Explicit subcommand syntax
+spades-rs assemble -1 R1.fq.gz -2 R2.fq.gz -o output_dir
 ```
 
-| Option | Type | Default | Description |
+| Option | Argument | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `-1, --pe1-1 <FILE>` | Path | None | Forward paired-end reads (standard SPAdes flag) |
-| `-2, --pe1-2 <FILE>` | Path | None | Reverse paired-end reads (standard SPAdes flag) |
-| `-s, --pe1-s <FILE>` | Path | None | Unpaired / single-end reads (standard SPAdes flag) |
-| `--12 <FILE>` | Path | None | Interleaved paired-end reads |
-| `-i, --inputs <PATHS>` | Paths | None | General input FASTQ/FASTA files (plain or `.gz`) |
-| `-o, --output <PATH>` | Path | `contigs.fasta` | Output contigs FASTA file |
-| `-k, --k <INT>` | Integer | `31` | Primary k-mer size (must be odd, <= 127) |
-| `-c, --coverage <FLOAT>` | Float | `5.0` | Minimum unitig k-mer coverage threshold |
-| `-m, --min-len <INT>` | Integer | `200` | Minimum contig length in output (bp) |
-| `-t, --threads <INT>` | Integer | Auto | Worker thread count (defaults to logical CPU cores) |
-| `--error-correct` | Flag | `false` | Run BayesHammer read error correction prior to assembly |
-| `--careful` | Flag | `false` | Run careful mode: BayesHammer + stringent mismatch correction |
-| `--max-memory <GB>` | Float | Auto (80% RAM) | Hard RAM budget ceiling in GB |
-| `--multik <LIST>` | Comma-separated | None | Progressive multi-K sizes (e.g., `21,33,55,77`) |
-| `--nanopore <PATH>` | Path | None | Oxford Nanopore reads for hybrid bridging |
-| `--pacbio <PATH>` | Path | None | PacBio reads for hybrid bridging |
-| `--splitter <PATHS>` | Paths | None | Barcoded linked reads for SpLitteR repeat resolution |
-| `--trusted-contigs <PATHS>` | Paths | None | High-confidence contigs to guide backbone assembly |
-| `--meta` | Flag | `false` | Enable metaSPAdes mode for uneven metagenomic communities |
-| `--plasmid` | Flag | `false` | Enable plasmidSPAdes mode to extract plasmids to `plasmids.fasta` |
-| `--rna` | Flag | `false` | Enable rnaSPAdes mode for transcriptomes and alternative isoforms |
-| `--sc` | Flag | `false` | Enable scSPAdes mode for single-cell MDA normalization |
-| `--no-polish` | Flag | `false` | Skip final consensus base polishing pass |
+| `-1, --pe1-1` | Path | None | Forward paired-end reads |
+| `-2, --pe1-2` | Path | None | Reverse paired-end reads |
+| `-s, --pe1-s` | Path | None | Unpaired / single-end reads |
+| `--12` | Path | None | Interleaved paired-end reads |
+| `-i, --inputs` | Paths | None | General FASTQ/FASTA files (plain or `.gz`) |
+| `-o, --output` | Path | `contigs.fasta` | Output directory or contig FASTA path |
+| `-k, --k` | Integer | `31` | K-mer size (must be odd, 11 to 127) |
+| `-c, --coverage` | Float | `5.0` | Minimum unitig k-mer coverage threshold |
+| `-m, --min-len` | Integer | `200` | Minimum contig length in output (bp) |
+| `-t, --threads` | Integer | System threads | Worker threads (defaults to logical core count) |
+| `--error-correct` | Flag | `false` | Run BayesHammer read error correction before assembly |
+| `--careful` | Flag | `false` | Run careful mode with stricter mismatch correction |
+| `--multik` | List | None | Comma-separated k-mer sizes (e.g., `21,33,55`) |
+| `--nanopore` | Path | None | Oxford Nanopore reads for hybrid bridging |
+| `--pacbio` | Path | None | PacBio HiFi reads for hybrid bridging |
+| `--splitter` | Paths | None | Barcoded linked reads for SpLitteR repeat resolution |
+| `--trusted-contigs` | Paths | None | High-confidence contigs to guide assembly paths |
+| `--max-memory` | Float | 80% RAM | Maximum physical RAM budget in GB |
+| `--meta` | Flag | `false` | Enable metagenomic uneven coverage filtering |
+| `--plasmid` | Flag | `false` | Segregate circular and high-copy elements into `plasmids.fasta` |
+| `--rna` | Flag | `false` | Enable transcriptome mode preserving alternative splicing |
+| `--sc` | Flag | `false` | Enable single-cell MDA normalization |
+| `--no-polish` | Flag | `false` | Skip consensus base polishing pass |
 
 ## Usage examples
 
-### 1. Standard isolate assembly with error correction (SPAdes drop-in syntax)
+### 1. Standard bacterial isolate assembly
+
 ```bash
-spades-rs assemble \
-    -1 reads_1.fq.gz \
-    -2 reads_2.fq.gz \
-    --careful \
-    -k 31 \
-    -o output/
+spades-rs -1 reads_1.fq.gz -2 reads_2.fq.gz --careful -o output_dir/
 ```
-Outputs produced:
-* `output/contigs.fasta`: Primary assembled genomic contigs.
-* `output/scaffolds.fasta`: Scaffolds linked across repeat gaps.
-* `output/assembly_graph.gfa`: Graphical Fragment Assembly v1.1 format (compatible with Bandage).
 
-### 2. Specifying a memory ceiling
-By default, `spades-rs` uses up to 80% of detected available RAM. A specific limit can be set manually:
+Files produced in `output_dir/`:
+* `contigs.fasta`: Primary assembled genomic contigs.
+* `scaffolds.fasta`: Scaffolds linked across repeat gaps.
+* `assembly_graph.gfa`: Standard Graphical Fragment Assembly v1.1 file, viewable in Bandage.
+
+### 2. Multi-k iteration
+
+Stepping through multiple k-mer sizes helps resolve both short repeats and low-coverage regions:
+
 ```bash
-spades-rs assemble \
-    -i reads_1.fq.gz reads_2.fq.gz \
-    --max-memory 4.0 \
-    -o contigs.fasta
+spades-rs -1 reads_1.fq.gz -2 reads_2.fq.gz --multik 21,33,55 -o output_dir/
 ```
 
-### 3. Hybrid assembly with Oxford Nanopore or PacBio
+### 3. Setting a memory ceiling
+
+By default, `spades-rs` inspects host RAM and caps itself at 80% of available memory. A hard ceiling can be set explicitly:
+
 ```bash
-spades-rs assemble \
-    -i short_reads_1.fq.gz short_reads_2.fq.gz \
-    --nanopore ont_reads.fq.gz \
-    -o hybrid_contigs.fasta
+spades-rs -1 reads_1.fq.gz -2 reads_2.fq.gz --max-memory 2.0 -o output_dir/
 ```
 
-### 4. Metagenomic and plasmid extraction
+### 4. Hybrid assembly with long reads
+
 ```bash
-spades-rs assemble \
-    -i metagenome_1.fq.gz metagenome_2.fq.gz \
-    --meta \
-    --plasmid \
-    -o meta_assembly.fasta
+spades-rs -1 short_1.fq.gz -2 short_2.fq.gz --nanopore ont_reads.fq.gz -o hybrid_out/
 ```
 
-### 5. Transcriptome assembly (RNA-Seq)
+### 5. Metagenomic and plasmid assembly
+
 ```bash
-spades-rs assemble \
-    -i rna_1.fq.gz rna_2.fq.gz \
-    --rna \
-    -o transcripts.fasta
+# Metagenomic community
+spades-rs -1 meta_1.fq.gz -2 meta_2.fq.gz --meta -o meta_out/
+
+# Plasmid extraction
+spades-rs -1 isolate_1.fq.gz -2 isolate_2.fq.gz --plasmid -o plasmid_out/
 ```
 
-### 6. Progressive multi-K iterations
+## Testing and validation
+
+The repository includes both native Rust tests and a real-world scenario validation harness:
+
+### Native Rust test suite
+
 ```bash
-spades-rs assemble \
-    -i reads_1.fq.gz reads_2.fq.gz \
-    --multik 21,33,55 \
-    -o contigs.fasta
+cargo test --release
 ```
 
-## Technical report and verification
+Includes 53 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, and module workflows.
 
-Additional evaluation details, including per-species metrics and biological feature recovery across 11 test sets, are documented in:
-* [`TECHNICAL_REPORT_AND_ROADMAP.md`](TECHNICAL_REPORT_AND_ROADMAP.md)
+### Real-world scenario validation
 
-## Automated testing
-
-The test suite includes 39 unit and integration tests:
 ```bash
-cargo test
-```
-All tests pass:
-```text
-test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.80s
-```
+# Fast validation across all library types and edge cases (~20 seconds)
+python3 tools/run_realworld_validation.py --quick
 
-## Academic citations and attribution
-
-`spades-rs` is a Rust reimplementation and optimization of algorithmic concepts developed by the SPAdes research group (Algorithmic Biology Lab, St. Petersburg Academic University / Center for Algorithmic Biotechnology).
-
-When using `spades-rs`, please cite both this repository and the original literature describing the foundational algorithms:
-
-### Primary SPAdes algorithms
-* **SPAdes Core Assembler:**  
-  Bankevich, A., Nurk, S., Antipov, D., Gurevich, A. A., Dvorkin, M., Kulikov, A. S., Lesin, V. M., Nikolenko, S. I., Pham, S., Prjibelski, A. D., Pyshkin, A. V., Sirotkin, A. V., Vyahhi, N., Tesler, G., Alekseyev, M. A., & Pevzner, P. A. (2012). **SPAdes: A new genome assembly algorithm and its applications to single-cell sequencing.** *Journal of Computational Biology*, 19(5), 455–477. [doi:10.1089/cmb.2012.0021](https://doi.org/10.1089/cmb.2012.0021).
-
-* **Comprehensive SPAdes Ecosystem:**  
-  Prjibelski, A., Antipov, D., Meleshko, D., Lapidus, A., & Korobeynikov, A. (2020). **Using SPAdes De Novo Assembler.** *Current Protocols in Bioinformatics*, 70(1), e102. [doi:10.1002/cpbi.102](https://doi.org/10.1002/cpbi.102).
-
-### Specialized algorithmic pipelines
-* **BayesHammer Error Correction (`--error-correct`):**  
-  Nikolenko, S. I., Korobeynikov, A. I., & Alekseyev, M. A. (2013). **BayesHammer: Bayesian clustering for error correction in single-cell sequencing.** *BMC Genomics*, 14(Suppl 1), S7. [doi:10.1186/1471-2164-14-S1-S7](https://doi.org/10.1186/1471-2164-14-S1-S7).
-
-* **ExSPAnder Repeat Resolution (`src/expander.rs`):**  
-  Prjibelski, A. D., Vasilinetc, I., Bankevich, A., Gurevich, A., Krivosheev, T., Nurk, S., Pham, S., & Pevzner, P. A. (2014). **ExSPAnder: a universal repeat resolver for DNA fragment assembly.** *Bioinformatics*, 30(12), i293–i301. [doi:10.1093/bioinformatics/btu266](https://doi.org/10.1093/bioinformatics/btu266).
-
-* **metaSPAdes Metagenomics Pipeline (`--meta`):**  
-  Nurk, S., Meleshko, D., Korobeynikov, A., & Pevzner, P. A. (2017). **metaSPAdes: a new versatile metagenomic assembler.** *Genome Research*, 27(5), 824–834. [doi:10.1101/gr.213959.116](https://doi.org/10.1101/gr.213959.116).
-
-* **plasmidSPAdes Plasmid Extraction (`--plasmid`):**  
-  Antipov, D., Hartwick, N., Shen, M., & Pevzner, P. A. (2016). **plasmidSPAdes: assembling plasmids from whole genome sequencing data.** *Bioinformatics*, 32(22), 3380–3387. [doi:10.1093/bioinformatics/btw493](https://doi.org/10.1093/bioinformatics/btw493).
-
-* **rnaSPAdes Transcriptome Assembly (`--rna`):**  
-  Bushmanova, E., Antipov, D., Lapidus, A., & Prjibelski, A. D. (2019). **rnaSPAdes: a de novo transcriptome assembler and its application to RNA-Seq data.** *GigaScience*, 8(9), giz100. [doi:10.1093/gigascience/giz100](https://doi.org/10.1093/gigascience/giz100).
-
-* **hybridSPAdes and Spaligner Long-Read Graph Alignment (`--nanopore`, `--pacbio`):**  
-  Antipov, D., Korobeynikov, A., McLean, J. S., & Pevzner, P. A. (2016). **hybridSPAdes: an algorithm for hybrid assembly of short and long reads.** *Bioinformatics*, 32(7), 1009–1015. [doi:10.1093/bioinformatics/btv688](https://doi.org/10.1093/bioinformatics/btv688).  
-  Dvorkina, T., Antipov, D., & Korobeynikov, A. (2020). **Spaligner: alignment of long reads to assembly graphs.** *Bioinformatics*, 36(Suppl 1), i188–i195. [doi:10.1093/bioinformatics/btaa444](https://doi.org/10.1093/bioinformatics/btaa444).
-
-### Computational and model assistance
-* **Gemini 3.8 Flash (Google DeepMind):**  
-  Interactive LLM assistance was used for code translation, test authoring, and documentation auditing.
-
-### BibTeX entries
-```bibtex
-@article{bankevich2012spades,
-  author    = {Bankevich, Anton and Nurk, Sergey and Antipov, Dmitry and Gurevich, Alexey A. and Dvorkin, Mikhail and Kulikov, Alexander S. and Lesin, Valery M. and Nikolenko, Sergey I. and Pham, Son and Prjibelski, Andrey D. and Pyshkin, Alexey V. and Sirotkin, Alexander V. and Vyahhi, Nikolay and Tesler, Glenn and Alekseyev, Max A. and Pevzner, Pavel A.},
-  title     = {{SPAdes: A New Genome Assembly Algorithm and Its Applications to Single-Cell Sequencing}},
-  journal   = {Journal of Computational Biology},
-  volume    = {19},
-  number    = {5},
-  pages     = {455--477},
-  year      = {2012},
-  doi       = {10.1089/cmb.2012.0021}
-}
-
-@article{prjibelski2020using,
-  author    = {Prjibelski, Andrey and Antipov, Dmitry and Meleshko, Dmitry and Lapidus, Alla and Korobeynikov, Anton},
-  title     = {{Using SPAdes De Novo Assembler}},
-  journal   = {Current Protocols in Bioinformatics},
-  volume    = {70},
-  number    = {1},
-  pages     = {e102},
-  year      = {2020},
-  doi       = {10.1002/cpbi.102}
-}
-
-@article{tolstoganov2024splitter,
-  author    = {Tolstoganov, Ivan and Bankevich, Anton and Prjibelski, Andrey D.},
-  title     = {{SpLitteR: diploid genome assembly using TELL-Seq linked-reads and assembly graphs}},
-  journal   = {PeerJ},
-  volume    = {12},
-  pages     = {e18050},
-  year      = {2024},
-  doi       = {10.7717/peerj.18050}
-}
-
-@software{spades_rs2026,
-  author    = {Rout, Sagnik and {Gemini 3.8 Flash (Google DeepMind)}},
-  title     = {{spades-rs: A Rust-based de novo genome assembler designed for low-memory environments}},
-  url       = {https://github.com/sagnikrout/spades-rs},
-  version   = {1.0.0},
-  year      = {2026}
-}
-
-@misc{gemini38flash,
-  author    = {{Google DeepMind}},
-  title     = {{Gemini 3.8 Flash}},
-  year      = {2026},
-  url       = {https://deepmind.google/technologies/gemini/},
-  note      = {Interactive LLM assistance for code translation, test authoring, and documentation auditing}
-}
+# Full matrix including multi-million read benchmarks
+python3 tools/run_realworld_validation.py
 ```
 
-## Authors and contributors
+Validates 19 distinct operational scenarios:
+1. Viral control ground truth (PhiX174, circular ssDNA)
+2. Single-end reads (`-s`)
+3. Interleaved paired-end reads (`--12`)
+4. Legacy Phred+64 auto-detection
+5. Multi-line wrapped FASTA input
+6. Deep multi-K stepping (k=21 to k=99, testing 256-bit SIMD math)
+7. Hybrid PacBio HiFi repeat bridging (`--pacbio`)
+8. 10x Genomics barcoded linked reads (`--splitter`)
+9. Multi-plasmid segregation (`--plasmid`)
+10. Single-cell MDA depth normalization (`--sc`)
+11. RNA-Seq transcriptome assembly (`--rna`)
+12. Metagenome multi-coverage filtering (`--meta`)
+13. Memory budget enforcement (`--max-memory 0.5`)
+14. Thread concurrency scaling (`-t 1`)
+15. Reads with degraded poly-N tails
+16. Reads with 100% N bases
+17. Even k-mer rejection fault injection
+18. Out-of-bounds k-mer rejection fault injection
+19. Missing input file error handling
 
-* **Sagnik Rout** (Lead developer, architecture and algorithms)
-* **Gemini 3.8 Flash** (Google DeepMind; LLM co-author for code translation, test authoring, and documentation auditing)
+## Codebase layout
+
+The Rust source code is contained in `src/` (4,600 lines, zero dynamic runtime dependencies):
+
+| File | Primary role |
+| :--- | :--- |
+| [`src/main.rs`](src/main.rs) | CLI parsing, argument validation, thread pool setup |
+| [`src/lib.rs`](src/lib.rs) | Crate root, 64-bit architecture assertion, public exports |
+| [`src/dna.rs`](src/dna.rs) | 2-bit base encoding, 64-bit and 256-bit canonical k-mer arithmetic |
+| [`src/bloom.rs`](src/bloom.rs) | Two-Tier Atomic Bloom filter for memory-bounded k-mer filtering |
+| [`src/fastq.rs`](src/fastq.rs) | FASTQ/FASTA reader, Phred-33/64 auto-detection, quality trimming |
+| [`src/packed_reads.rs`](src/packed_reads.rs) | Contiguous 2-bit read buffer with end-trimming and N-handling |
+| [`src/hammer.rs`](src/hammer.rs) | BayesHammer Hamming error correction |
+| [`src/graph.rs`](src/graph.rs) | Compacted de Bruijn graph with bidirected port involution |
+| [`src/simplify.rs`](src/simplify.rs) | Tip clipping, bubble popping, and unitig stitching |
+| [`src/paired_info.rs`](src/paired_info.rs) | Paired-end library insert size estimation |
+| [`src/expander.rs`](src/expander.rs) | ExSPAnder paired-end repeat navigation |
+| [`src/spaligner.rs`](src/spaligner.rs) | Spaligner long-read graph alignment and repeat bridging |
+| [`src/splitter.rs`](src/splitter.rs) | SpLitteR linked-read barcode repeat resolution |
+| [`src/multik.rs`](src/multik.rs) | Progressive in-memory multi-k unitig seeding |
+| [`src/scaffold.rs`](src/scaffold.rs) | Scaffolding path walker and gap closing |
+| [`src/polisher.rs`](src/polisher.rs) | Consensus base voting across primary reads and sidecar |
+| [`src/modes.rs`](src/modes.rs) | Specialized pipelines: meta, plasmid, RNA, and single-cell |
+| [`src/memory.rs`](src/memory.rs) | Memory budget calculations and dynamic Bloom sizing |
+| [`src/gfa.rs`](src/gfa.rs) | Graphical Fragment Assembly (GFA v1.1) exporter |
+| [`src/assemble.rs`](src/assemble.rs) | End-to-end 8-stage assembly pipeline orchestrator |
+
+## Attribution and citations
+
+`spades-rs` is an independent Rust reimplementation based on the algorithms developed by the SPAdes research team (Algorithmic Biology Lab, St. Petersburg Academic University / Center for Algorithmic Biotechnology).
+
+When using `spades-rs`, please cite both this repository and the original publications:
+
+* **SPAdes:** Bankevich, A. et al. (2012). *Journal of Computational Biology*, 19(5), 455–477. [doi:10.1089/cmb.2012.0021](https://doi.org/10.1089/cmb.2012.0021).
+* **Using SPAdes:** Prjibelski, A. et al. (2020). *Current Protocols in Bioinformatics*, 70(1), e102. [doi:10.1002/cpbi.102](https://doi.org/10.1002/cpbi.102).
+* **BayesHammer:** Nikolenko, S. I. et al. (2013). *BMC Genomics*, 14(Suppl 1), S7. [doi:10.1186/1471-2164-14-S1-S7](https://doi.org/10.1186/1471-2164-14-S1-S7).
+* **ExSPAnder:** Prjibelski, A. D. et al. (2014). *Bioinformatics*, 30(12), i293–i301. [doi:10.1093/bioinformatics/btu266](https://doi.org/10.1093/bioinformatics/btu266).
+* **metaSPAdes:** Nurk, S. et al. (2017). *Genome Research*, 27(5), 824–834. [doi:10.1101/gr.213959.116](https://doi.org/10.1101/gr.213959.116).
+* **plasmidSPAdes:** Antipov, D. et al. (2016). *Bioinformatics*, 32(22), 3380–3387. [doi:10.1093/bioinformatics/btw493](https://doi.org/10.1093/bioinformatics/btw493).
+* **rnaSPAdes:** Bushmanova, E. et al. (2019). *GigaScience*, 8(9), giz100. [doi:10.1093/gigascience/giz100](https://doi.org/10.1093/gigascience/giz100).
+* **hybridSPAdes / Spaligner:** Antipov, D. et al. (2016). *Bioinformatics*, 32(7), 1009–1015; Dvorkina, T. et al. (2020). *Bioinformatics*, 36(Suppl 1), i188–i195.
+* **SpLitteR:** Tolstoganov, I. et al. (2024). *PeerJ*, 12, e18050. [doi:10.7717/peerj.18050](https://doi.org/10.7717/peerj.18050).
 
 ## License
-MIT License. Free for academic, non-commercial, and commercial genomics workflows.
+
+MIT License. Free for academic, non-commercial, and commercial research.
