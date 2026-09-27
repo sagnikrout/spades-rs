@@ -94,12 +94,14 @@ impl PackedReads {
         let mut line = Vec::with_capacity(1024);
         let mut count = 0;
 
-        // Peek at first byte to determine format: '@' for FASTQ, '>' for FASTA
-        let mut first_byte = [0u8; 1];
-        if buf_reader.read(&mut first_byte)? == 0 {
-            return Ok(0); // empty file
-        }
-        let is_fastq = first_byte[0] == b'@';
+        // Peek at first byte to determine format without consuming it
+        let is_fastq = {
+            let buf = buf_reader.fill_buf()?;
+            if buf.is_empty() {
+                return Ok(0); // empty file
+            }
+            buf[0] == b'@'
+        };
 
         if is_fastq {
             // Read remainder of line 1 (header)
@@ -205,9 +207,13 @@ impl PackedReads {
     /// In debug builds a non-ACGT byte triggers a panic assertion.
     /// In release builds a non-ACGT byte is skipped (no `unwrap_or(0)` mutation).
     pub fn pack_clean(&mut self, read: &[u8]) {
+        let clean_len = read.iter().filter(|&&b| base_to_2bit(b).is_some()).count();
         let offset = self.data.len();
         self.offsets.push(offset);
-        self.lengths.push(read.len() as u32);
+        self.lengths.push(clean_len as u32);
+        if clean_len == 0 {
+            return;
+        }
 
         let mut byte = 0u8;
         let mut shift = 6i32;
