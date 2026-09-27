@@ -134,6 +134,126 @@ enum Commands {
         max_memory: Option<f64>,
     },
 
+    /// Stage 2: Quality control, adapter clipping, and read preprocessing
+    #[command(name = "qc", aliases = ["preprocess"])]
+    Qc {
+        /// Forward paired-end reads file (FASTQ / FASTQ.GZ)
+        #[arg(short = '1', long = "pe1-1", value_name = "FILE")]
+        pe1_1: Option<PathBuf>,
+
+        /// Reverse paired-end reads file (FASTQ / FASTQ.GZ)
+        #[arg(short = '2', long = "pe1-2", value_name = "FILE")]
+        pe1_2: Option<PathBuf>,
+
+        /// Single-end reads file (FASTQ / FASTQ.GZ)
+        #[arg(short = 's', long = "single", value_name = "FILE")]
+        single: Option<PathBuf>,
+
+        /// Clean output file for forward reads (or single reads)
+        #[arg(short = 'o', long = "out1", value_name = "FILE")]
+        out1: Option<PathBuf>,
+
+        /// Clean output file for reverse reads
+        #[arg(short = 'O', long = "out2", value_name = "FILE")]
+        out2: Option<PathBuf>,
+
+        /// Output file for surviving unpaired / singleton reads from filtered pairs
+        #[arg(long = "unpaired", value_name = "FILE")]
+        unpaired: Option<PathBuf>,
+
+        /// Minimum Phred quality threshold for sliding-window trimming
+        #[arg(long, default_value_t = 15)]
+        min_quality: u8,
+
+        /// Sliding window size for quality trimming
+        #[arg(long, default_value_t = 4)]
+        window_size: usize,
+
+        /// Minimum read length to keep after trimming
+        #[arg(short = 'l', long = "min-len", default_value_t = 30)]
+        min_len: usize,
+
+        /// Maximum allowed uncalled 'N' bases per read
+        #[arg(long, default_value_t = 3)]
+        max_ns: usize,
+
+        /// Minimum trailing poly-G length to trim (0 to disable)
+        #[arg(long, default_value_t = 5)]
+        trim_poly_g: usize,
+
+        /// Minimum adapter overlap length for 3' adapter clipping
+        #[arg(long, default_value_t = 10)]
+        min_adapter_overlap: usize,
+
+        /// Additional custom adapter sequence(s) to trim
+        #[arg(long = "adapter", num_args = 1..)]
+        adapters: Option<Vec<String>>,
+
+        /// Force Phred+64 encoding format
+        #[arg(long)]
+        phred64: bool,
+
+        /// Force Phred+33 encoding format
+        #[arg(long)]
+        phred33: bool,
+
+        /// Number of worker threads
+        #[arg(short = 't', long = "threads")]
+        threads: Option<usize>,
+
+        /// Save machine-readable QC report to JSON file
+        #[arg(long = "json", value_name = "FILE")]
+        json: Option<PathBuf>,
+    },
+
+    /// Stage 5: QUAST-equivalent assembly evaluation
+    #[command(name = "eval")]
+    Eval {
+        /// Assembly contigs or scaffolds FASTA file (plain text or .gz)
+        #[arg(value_name = "CONTIGS")]
+        contigs: PathBuf,
+
+        /// Reference genome FASTA file for genome fraction and mismatch scoring
+        #[arg(short = 'r', long = "reference", value_name = "FILE")]
+        reference: Option<PathBuf>,
+
+        /// Minimum contig length cutoff (bp)
+        #[arg(short = 'l', long = "min-len", default_value_t = 200)]
+        min_len: usize,
+
+        /// Save machine-readable evaluation report to JSON file
+        #[arg(long = "json", value_name = "FILE")]
+        json: Option<PathBuf>,
+    },
+
+    /// Stage 5: Standalone consensus base polishing for draft contigs
+    #[command(name = "polish")]
+    Polish {
+        /// Assembly contigs or scaffolds FASTA file to polish
+        #[arg(value_name = "CONTIGS")]
+        contigs: PathBuf,
+
+        /// Read files for polishing (comma-separated or multiple flags)
+        #[arg(short = 'i', long = "reads", value_delimiter = ',', num_args = 1..)]
+        reads: Vec<PathBuf>,
+
+        /// Output path for polished contigs FASTA
+        #[arg(short = 'o', long = "output", default_value = "polished_contigs.fasta")]
+        output: PathBuf,
+
+        /// K-mer size for polishing alignment anchors
+        #[arg(short = 'k', default_value_t = 21)]
+        k: usize,
+
+        /// Minimum coverage threshold required to alter a consensus base
+        #[arg(long = "min-coverage", default_value_t = 5)]
+        min_coverage: u32,
+
+        /// Enable careful polishing mode
+        #[arg(long)]
+        careful: bool,
+    },
+
     /// Run automatic benchmark on SPAdes reference test dataset
     Benchmark {
         /// Path to SPAdes test dataset directory (defaults to data/)
@@ -161,6 +281,10 @@ fn main() -> anyhow::Result<()> {
         let first = &args[1];
         if first != "assemble"
             && first != "benchmark"
+            && first != "qc"
+            && first != "preprocess"
+            && first != "eval"
+            && first != "polish"
             && first != "help"
             && first != "-h"
             && first != "--help"
@@ -409,6 +533,140 @@ fn main() -> anyhow::Result<()> {
                 write_contigs_fasta(&result.plasmids, &plasmid_path)?;
                 println!("  Plasmids successfully exported to: {:?}", plasmid_path);
             }
+
+            // Stage 5: Automatic assembly evaluation summary
+            if let Ok(eval_metrics) =
+                spades_rs::eval::evaluate_assembly(&contig_path, None, min_len)
+            {
+                println!();
+                eval_metrics.print_summary();
+            }
+        }
+
+        Commands::Qc {
+            pe1_1,
+            pe1_2,
+            single,
+            out1,
+            out2,
+            unpaired,
+            min_quality,
+            window_size,
+            min_len,
+            max_ns,
+            trim_poly_g,
+            min_adapter_overlap,
+            adapters,
+            phred64,
+            phred33,
+            threads,
+            json,
+        } => {
+            if let Some(t) = threads {
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(t)
+                    .build_global()?;
+            }
+
+            let mut cfg = spades_rs::qc::QcConfig {
+                min_quality,
+                window_size,
+                min_length: min_len,
+                max_ns,
+                trim_poly_g,
+                min_adapter_overlap,
+                threads,
+                ..Default::default()
+            };
+
+            if phred64 {
+                cfg.phred_override = Some(spades_rs::fastq::PhredEncoding::Phred64);
+            } else if phred33 {
+                cfg.phred_override = Some(spades_rs::fastq::PhredEncoding::Phred33);
+            }
+
+            if let Some(user_adapters) = adapters {
+                for ad in user_adapters {
+                    let bytes = ad.into_bytes();
+                    cfg.adapters_r1.push(bytes.clone());
+                    cfg.adapters_r2.push(bytes);
+                }
+            }
+
+            let report = match (pe1_1, pe1_2, single) {
+                (Some(r1), Some(r2), None) => {
+                    let o1 = out1.unwrap_or_else(|| PathBuf::from("clean_1.fastq.gz"));
+                    let o2 = out2.unwrap_or_else(|| PathBuf::from("clean_2.fastq.gz"));
+                    spades_rs::qc::process_paired_reads(
+                        &r1,
+                        &r2,
+                        &o1,
+                        &o2,
+                        unpaired.as_deref(),
+                        &cfg,
+                    )?
+                }
+                (None, None, Some(s)) => {
+                    let o = out1.unwrap_or_else(|| PathBuf::from("clean_single.fastq.gz"));
+                    spades_rs::qc::process_single_reads(&s, &o, &cfg)?
+                }
+                (Some(_), None, _) | (None, Some(_), _) => {
+                    anyhow::bail!("Paired-end processing requires both -1/--pe1-1 and -2/--pe1-2.");
+                }
+                (None, None, None) => {
+                    anyhow::bail!("No input reads provided. Specify -1 and -2 for paired reads, or -s for single reads.");
+                }
+                (Some(_), Some(_), Some(_)) => {
+                    anyhow::bail!(
+                        "Cannot mix paired reads (-1/-2) and single reads (-s) in one run."
+                    );
+                }
+            };
+
+            report.print_summary();
+
+            if let Some(json_path) = json {
+                std::fs::write(&json_path, report.to_json())?;
+                println!("  QC JSON report saved to: {:?}", json_path);
+            }
+        }
+
+        Commands::Eval {
+            contigs,
+            reference,
+            min_len,
+            json,
+        } => {
+            let metrics =
+                spades_rs::eval::evaluate_assembly(&contigs, reference.as_deref(), min_len)?;
+            metrics.print_summary();
+            if let Some(json_path) = json {
+                std::fs::write(&json_path, metrics.to_json())?;
+                println!("  Evaluation JSON report saved to: {:?}", json_path);
+            }
+        }
+
+        Commands::Polish {
+            contigs,
+            reads,
+            output,
+            k,
+            min_coverage,
+            careful,
+        } => {
+            println!("Running Stage 5 standalone consensus base polishing...");
+            let corrected = spades_rs::eval::polish_assembly_file(
+                &contigs,
+                &reads,
+                &output,
+                k,
+                min_coverage,
+                careful,
+            )?;
+            println!(
+                "Consensus polishing completed: {} bases modified. Output saved to: {:?}",
+                corrected, output
+            );
         }
 
         Commands::Benchmark { test_dir, k } => {

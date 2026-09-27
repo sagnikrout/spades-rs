@@ -4,6 +4,7 @@ compile_error!("spades-rs requires a 64-bit architecture (x86_64, aarch64, riscv
 pub mod assemble;
 pub mod bloom;
 pub mod dna;
+pub mod eval;
 pub mod expander;
 pub mod fastq;
 pub mod gfa;
@@ -15,6 +16,7 @@ pub mod multik;
 pub mod packed_reads;
 pub mod paired_info;
 pub mod polisher;
+pub mod qc;
 pub mod scaffold;
 pub mod simplify;
 pub mod spaligner;

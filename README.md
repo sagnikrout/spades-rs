@@ -195,6 +195,36 @@ spades-rs -1 meta_1.fq.gz -2 meta_2.fq.gz --meta -o meta_out/
 spades-rs -1 isolate_1.fq.gz -2 isolate_2.fq.gz --plasmid -o plasmid_out/
 ```
 
+### 6. Stage 2: Read preprocessing and QC (`spades-qc`)
+
+Run adapter clipping (Illumina TruSeq, Nextera), NovaSeq/NextSeq poly-G tail removal, and sliding-window quality trimming:
+
+```bash
+# Standalone tool
+spades-qc -1 reads_1.fq.gz -2 reads_2.fq.gz -o clean_1.fq.gz -O clean_2.fq.gz --json qc_report.json
+
+# Or via unified spades-rs subcommand
+spades-rs qc -1 reads_1.fq.gz -2 reads_2.fq.gz -o clean_1.fq.gz -O clean_2.fq.gz
+```
+
+### 7. Stage 5: Assembly evaluation & polishing (`spades-eval`)
+
+Compute QUAST-grade contiguity metrics (N50, L50, N90, L90, GC%, contig size bins), reference genome fraction, mismatch rate per 100 kbp, and standalone consensus polishing:
+
+```bash
+# Standalone evaluation
+spades-eval contigs.fasta -r reference.fasta --json eval_report.json
+
+# Standalone consensus polishing
+spades-eval contigs.fasta --polish --reads clean_1.fq.gz,clean_2.fq.gz -o polished.fasta
+
+# Or via unified spades-rs subcommands
+spades-rs eval contigs.fasta -r reference.fasta
+spades-rs polish contigs.fasta --reads clean_1.fq.gz,clean_2.fq.gz -o polished.fasta
+```
+
+*(Note: `spades-rs assemble` also evaluates and prints this QUAST-grade report automatically at the conclusion of every assembly run).*
+
 ## Testing and validation
 
 The repository includes both native Rust tests and a real-world scenario validation harness:
@@ -205,7 +235,7 @@ The repository includes both native Rust tests and a real-world scenario validat
 cargo test --release
 ```
 
-Includes 53 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, and module workflows.
+Includes 78 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, Stage 2 QC trimming, Stage 5 QUAST evaluation, and module workflows.
 
 ### Real-world scenario validation
 

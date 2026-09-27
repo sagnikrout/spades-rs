@@ -17,6 +17,14 @@ path = "src/lib.rs"
 name = "spades-rs"
 path = "src/main.rs"
 
+[[bin]]
+name = "spades-qc"
+path = "src/bin/spades_qc.rs"
+
+[[bin]]
+name = "spades-eval"
+path = "src/bin/spades_eval.rs"
+
 [dependencies]
 rayon = "1.10"
 flate2 = "1.0"
