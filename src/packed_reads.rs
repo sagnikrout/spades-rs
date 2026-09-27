@@ -3,6 +3,16 @@
 //! Packs 4 DNA bases per byte (A=00, C=01, G=10, T=11).
 //! Stores millions of reads in a single contiguous buffer to eliminate
 //! multi-gigabyte heap fragmentation and glibc arena bloat.
+//!
+//! # N-Base Handling
+//!
+//! Reads are ingested through a three-gate pipeline:
+//! 1. **End Trim**: Leading and trailing `N`/`n` bases are stripped in-place (zero allocation).
+//! 2. **N-Split**: Internal `N`/`n` runs split the read into contiguous ACGT sub-reads.
+//!    Sub-reads ≥ `MIN_K` (21 bp) are packed into the primary 2-bit store.
+//! 3. **Sidecar**: Reads whose every sub-read is shorter than `MIN_K` (extremely rare, ~0.5%)
+//!    are kept in `ambiguous_sidecar` as raw ASCII for polishing coverage votes only.
+//!    They never enter the Bloom filter or the de Bruijn graph.
 
 use crate::dna::{base_to_2bit, bit2_to_base};
 use anyhow::{Context, Result};
@@ -11,16 +21,22 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
+/// Minimum k-mer size: sub-reads shorter than this cannot produce any valid k-mer.
+const MIN_K: usize = 21;
+
 #[derive(Clone, Default, Debug)]
 pub struct PackedReads {
-    /// Contiguous packed 2-bit bases (4 bases per byte)
+    /// Contiguous packed 2-bit bases (4 bases per byte).
     pub data: Vec<u8>,
-    /// Byte start offset of each read in `data`
+    /// Byte start offset of each read in `data`.
     pub offsets: Vec<usize>,
-    /// Exact base length of each read
+    /// Exact base length of each read.
     pub lengths: Vec<u32>,
-    /// Index separating Read 1 and Read 2 (if paired)
+    /// Index separating Read 1 and Read 2 (if paired).
     pub pe_boundary: usize,
+    /// Reads with internal Ns whose all ACGT sub-reads were shorter than MIN_K.
+    /// Stored as trimmed raw ASCII. Used only for polishing coverage votes.
+    pub ambiguous_sidecar: Vec<Vec<u8>>,
 }
 
 impl PackedReads {
@@ -31,6 +47,7 @@ impl PackedReads {
             offsets: Vec::with_capacity(num_reads),
             lengths: Vec::with_capacity(num_reads),
             pe_boundary: 0,
+            ambiguous_sidecar: Vec::new(),
         }
     }
 
@@ -98,7 +115,7 @@ impl PackedReads {
                     line.pop();
                 }
                 if !line.is_empty() {
-                    self.add_read(&line);
+                    self.ingest_read(&line);
                     count += 1;
                 }
                 line.clear();
@@ -134,7 +151,7 @@ impl PackedReads {
                 }
                 if line.starts_with(b">") {
                     if !seq_buf.is_empty() {
-                        self.add_read(&seq_buf);
+                        self.ingest_read(&seq_buf);
                         count += 1;
                         seq_buf.clear();
                     }
@@ -143,7 +160,7 @@ impl PackedReads {
                 }
             }
             if !seq_buf.is_empty() {
-                self.add_read(&seq_buf);
+                self.ingest_read(&seq_buf);
                 count += 1;
             }
         }
@@ -151,8 +168,43 @@ impl PackedReads {
         Ok(count)
     }
 
-    /// Packs and appends a single read into the contiguous byte buffer.
-    pub fn add_read(&mut self, read: &[u8]) {
+    // -------------------------------------------------------------------------
+    // Three-Gate Ingestion
+    // -------------------------------------------------------------------------
+
+    /// Ingests a raw read through the three-gate pipeline:
+    /// 1. End-trim leading/trailing Ns (zero allocation — slice bounds only).
+    /// 2. Split on internal Ns; pack each ACGT sub-read ≥ MIN_K into the primary store.
+    /// 3. If no sub-read was long enough, push the trimmed read into the ambiguous sidecar.
+    pub fn ingest_read(&mut self, read: &[u8]) {
+        // Gate 1: End trim.
+        let read = trim_n_ends(read);
+        if read.is_empty() {
+            return;
+        }
+
+        // Gate 2: Split on internal Ns and pack qualifying sub-reads.
+        let mut any_packed = false;
+        for segment in split_on_n(read) {
+            if segment.len() >= MIN_K {
+                self.pack_clean(segment);
+                any_packed = true;
+            }
+            // Sub-reads < MIN_K cannot produce any k-mer — silently discard.
+        }
+
+        // Gate 3: Entire read had no long-enough sub-read → sidecar.
+        if !any_packed {
+            self.ambiguous_sidecar.push(read.to_vec());
+        }
+    }
+
+    /// Packs and appends a clean ACGT read into the 2-bit buffer.
+    ///
+    /// Precondition: every byte in `read` is A, C, G, or T (upper or lowercase).
+    /// In debug builds a non-ACGT byte triggers a panic assertion.
+    /// In release builds a non-ACGT byte is skipped (no `unwrap_or(0)` mutation).
+    pub fn pack_clean(&mut self, read: &[u8]) {
         let offset = self.data.len();
         self.offsets.push(offset);
         self.lengths.push(read.len() as u32);
@@ -161,7 +213,13 @@ impl PackedReads {
         let mut shift = 6i32;
 
         for &b in read {
-            let b2 = base_to_2bit(b).unwrap_or(0); // non-ACGT default to 00
+            let b2 = match base_to_2bit(b) {
+                Some(v) => v,
+                None => {
+                    debug_assert!(false, "pack_clean received non-ACGT byte: {}", b as char);
+                    continue; // release: skip instead of corrupting
+                }
+            };
             byte |= b2 << shift;
             if shift == 0 {
                 self.data.push(byte);
@@ -176,6 +234,16 @@ impl PackedReads {
             self.data.push(byte);
         }
     }
+
+    /// Backwards-compatible entry point for callers that already hold clean ACGT sequences.
+    /// Routes directly to `pack_clean`.
+    pub fn add_read(&mut self, read: &[u8]) {
+        self.pack_clean(read);
+    }
+
+    // -------------------------------------------------------------------------
+    // Read Decoding
+    // -------------------------------------------------------------------------
 
     /// Decodes read `idx` into the caller's reusable scratch buffer without heap reallocation.
     #[inline(always)]
@@ -207,8 +275,46 @@ impl PackedReads {
         self.data.capacity()
             + self.offsets.capacity() * std::mem::size_of::<usize>()
             + self.lengths.capacity() * std::mem::size_of::<u32>()
+            + self
+                .ambiguous_sidecar
+                .iter()
+                .map(|v| v.capacity())
+                .sum::<usize>()
     }
 }
+
+// -------------------------------------------------------------------------
+// N-Handling Helpers (module-private, zero allocation)
+// -------------------------------------------------------------------------
+
+/// Strips leading and trailing `N`/`n` bases from a slice — zero allocation.
+#[inline]
+fn trim_n_ends(read: &[u8]) -> &[u8] {
+    let is_n = |b: &u8| *b == b'N' || *b == b'n';
+    let start = read.iter().position(|b| !is_n(b)).unwrap_or(read.len());
+    let end = read
+        .iter()
+        .rposition(|b| !is_n(b))
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    if start >= end {
+        &[]
+    } else {
+        &read[start..end]
+    }
+}
+
+/// Iterates over contiguous ACGT sub-slices by splitting at every `N`/`n`.
+/// Zero allocation — yields sub-slices of the original `read`.
+#[inline]
+fn split_on_n(read: &[u8]) -> impl Iterator<Item = &[u8]> {
+    read.split(|&b| b == b'N' || b == b'n')
+        .filter(|s| !s.is_empty())
+}
+
+// -------------------------------------------------------------------------
+// Tests
+// -------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -236,5 +342,132 @@ mod tests {
             store.get_read(i, &mut buf);
             assert_eq!(&buf, orig, "Mismatch at read index {}", i);
         }
+    }
+
+    #[test]
+    fn test_trim_n_ends_leading() {
+        assert_eq!(trim_n_ends(b"NNNACGT"), b"ACGT");
+    }
+
+    #[test]
+    fn test_trim_n_ends_trailing() {
+        assert_eq!(trim_n_ends(b"ACGTNNN"), b"ACGT");
+    }
+
+    #[test]
+    fn test_trim_n_ends_both() {
+        assert_eq!(trim_n_ends(b"NNACGTNN"), b"ACGT");
+    }
+
+    #[test]
+    fn test_trim_n_ends_all_n() {
+        assert_eq!(trim_n_ends(b"NNNNN"), b"");
+    }
+
+    #[test]
+    fn test_trim_n_ends_no_n() {
+        assert_eq!(trim_n_ends(b"ACGTACGT"), b"ACGTACGT");
+    }
+
+    #[test]
+    fn test_split_on_n_basic() {
+        let segs: Vec<&[u8]> = split_on_n(b"ACGTNNNACGT").collect();
+        assert_eq!(segs, vec![b"ACGT" as &[u8], b"ACGT"]);
+    }
+
+    #[test]
+    fn test_split_on_n_no_n() {
+        let segs: Vec<&[u8]> = split_on_n(b"ACGTACGT").collect();
+        assert_eq!(segs, vec![b"ACGTACGT" as &[u8]]);
+    }
+
+    #[test]
+    fn test_split_on_n_multiple() {
+        let segs: Vec<&[u8]> = split_on_n(b"ACGTNACGTNACGT").collect();
+        assert_eq!(segs, vec![b"ACGT" as &[u8], b"ACGT", b"ACGT"]);
+    }
+
+    #[test]
+    fn test_ingest_n_tail_packs_trimmed_clean() {
+        // 21 clean ACGT bases + 3 trailing Ns → trimmed to 21 bp, packed to primary store.
+        let read = b"ACGTACGTACGTACGTACGTANNN";
+        let mut store = PackedReads::default();
+        store.ingest_read(read);
+
+        assert_eq!(store.len(), 1, "Trimmed read must enter primary store");
+        assert!(store.ambiguous_sidecar.is_empty());
+
+        let mut buf = Vec::new();
+        store.get_read(0, &mut buf);
+        assert_eq!(buf, b"ACGTACGTACGTACGTACGTA");
+        assert!(!buf.contains(&b'N'));
+    }
+
+    #[test]
+    fn test_ingest_internal_n_splits_into_two_primary_reads() {
+        // 21 bp + internal N + 21 bp → two reads in primary store, sidecar empty.
+        let read = b"ACGTACGTACGTACGTACGTANNNACGTACGTACGTACGTACGTA";
+        let mut store = PackedReads::default();
+        store.ingest_read(read);
+
+        assert_eq!(store.len(), 2);
+        assert!(store.ambiguous_sidecar.is_empty());
+    }
+
+    #[test]
+    fn test_ingest_all_n_discarded() {
+        let mut store = PackedReads::default();
+        store.ingest_read(b"NNNNNN");
+        assert_eq!(store.len(), 0);
+        assert!(store.ambiguous_sidecar.is_empty());
+    }
+
+    #[test]
+    fn test_ingest_sub_reads_all_short_goes_to_sidecar() {
+        // "ACGT" (4 bp) + N + "CGTA" (4 bp) — neither half ≥ 21 bp → sidecar.
+        let mut store = PackedReads::default();
+        store.ingest_read(b"ACGTNNCGTA");
+
+        assert_eq!(
+            store.len(),
+            0,
+            "No sub-read ≥ 21 bp; primary store must be empty"
+        );
+        assert_eq!(
+            store.ambiguous_sidecar.len(),
+            1,
+            "Short-sub-read read must land in sidecar"
+        );
+    }
+
+    #[test]
+    fn test_no_artificial_a_from_n() {
+        // The original bug: N → unwrap_or(0) → 'A'. Confirm this no longer happens.
+        // Both halves of "ACGTNACGT" are 4 bp each (<21), so the read goes to the sidecar.
+        let mut store = PackedReads::default();
+        store.ingest_read(b"ACGTNACGT");
+
+        // Primary 2-bit store is empty — no corruption possible.
+        assert_eq!(store.len(), 0);
+
+        // Sidecar must preserve the raw bytes including N — not substitute A.
+        assert!(!store.ambiguous_sidecar.is_empty());
+        assert!(
+            store.ambiguous_sidecar[0].contains(&b'N'),
+            "Sidecar must preserve N, not mutate it to A"
+        );
+    }
+
+    #[test]
+    fn test_sidecar_read_not_in_primary_kmer_stream() {
+        // Reads in the sidecar must not appear in the primary index.
+        let mut store = PackedReads::default();
+        store.ingest_read(b"ACGTNACGT"); // both halves < 21 bp → sidecar
+
+        assert_eq!(
+            store.len(),
+            0,
+            "Sidecar reads must not enter primary 2-bit store"
+        );
     }
 }

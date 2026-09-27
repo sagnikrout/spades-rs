@@ -271,6 +271,53 @@ impl Polisher {
             }
         });
 
+        // --- Sidecar pass: ambiguous reads with N positions vote with their clean flanking bases.
+        // N bases return None from base_to_2bit and contribute zero to the tally.
+        // This pass is sequential because the sidecar is tiny (~0.5% of reads, ~20 MB).
+        for raw_read in &packed.ambiguous_sidecar {
+            if raw_read.len() < k {
+                continue;
+            }
+            let step = (k / 2 + 1).max(1);
+            for r_idx in (0..=(raw_read.len() - k)).step_by(step) {
+                if let Some(km) = string_to_kmer(&raw_read[r_idx..r_idx + k], k) {
+                    let (can, r_is_rc) = canonical_kmer_u64(km, k);
+                    if let Some(&(c_idx, c_pos, c_is_rc)) = kmer_pos.get(&can) {
+                        let c_idx = c_idx as usize;
+                        let c_pos = c_pos as usize;
+                        let c_len = tallies[c_idx].len();
+
+                        if r_is_rc == c_is_rc {
+                            let start_contig = c_pos as isize - r_idx as isize;
+                            for (read_offset, &base) in raw_read.iter().enumerate() {
+                                let curr_c_pos = start_contig + read_offset as isize;
+                                if curr_c_pos >= 0 && (curr_c_pos as usize) < c_len {
+                                    // N returns None → zero vote (correct behaviour)
+                                    if let Some(code) = crate::dna::base_to_2bit(base) {
+                                        tallies[c_idx][curr_c_pos as usize][code as usize]
+                                            .fetch_add(1, Ordering::Relaxed);
+                                    }
+                                }
+                            }
+                        } else {
+                            let start_contig = c_pos as isize + k as isize - 1 + r_idx as isize;
+                            for (read_offset, &base) in raw_read.iter().enumerate() {
+                                let curr_c_pos = start_contig - read_offset as isize;
+                                if curr_c_pos >= 0 && (curr_c_pos as usize) < c_len {
+                                    if let Some(code) = crate::dna::base_to_2bit(base) {
+                                        let rc_code = (!code) & 3;
+                                        tallies[c_idx][curr_c_pos as usize][rc_code as usize]
+                                            .fetch_add(1, Ordering::Relaxed);
+                                    }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
         let (min_support, dominance_ratio) = if self.careful {
             (self.min_coverage_support.min(3), 0.70)
         } else {
