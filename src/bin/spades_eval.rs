@@ -48,7 +48,7 @@ struct Cli {
     #[arg(short = 'o', long = "output", value_name = "FILE")]
     output: Option<PathBuf>,
 
-    /// K-mer size for polishing alignment anchors (odd integer between 15 and 127)
+    /// K-mer size for polishing alignment anchors (odd integer between 11 and 127)
     #[arg(short = 'k', default_value_t = 21, value_parser = validate_k)]
     k: usize,
 

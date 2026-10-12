@@ -134,7 +134,7 @@ impl LongReadResolver {
         } else {
             unitigs
                 .iter()
-                .map(|u| u.sequence.len() >= 500 && u.mean_coverage < median_cov * 1.5)
+                .map(|u| u.sequence.len() >= 500 && u.mean_coverage < repeat_threshold)
                 .collect()
         };
         let is_repeat: Vec<bool> = is_unique_flank.iter().map(|&u| !u).collect();
@@ -147,8 +147,8 @@ impl LongReadResolver {
             is_unique_flank.iter().filter(|&&u| u).count()
         );
 
-        // 2. Build seed k-mer index mapping canonical seed -> Vec<(unitig_idx, pos, is_rc)>
-        let mut seed_to_unitig: HashMap<u64, Vec<(u32, u32, bool)>> =
+        // 2. Build seed k-mer index mapping canonical seed -> Vec<(unitig_idx, is_rc)>
+        let mut seed_to_unitig: HashMap<u64, Vec<(u32, bool)>> =
             HashMap::with_capacity(unitigs.len() * 50);
 
         for (idx, u) in unitigs.iter().enumerate() {
@@ -161,7 +161,7 @@ impl LongReadResolver {
                     seed_to_unitig
                         .entry(can)
                         .or_default()
-                        .push((idx as u32, i as u32, is_rc));
+                        .push((idx as u32, is_rc));
                 }
             }
         }
@@ -198,7 +198,7 @@ impl LongReadResolver {
                         if let Some(km) = string_to_kmer(&read[i..i + seed_k], seed_k) {
                             let (can, r_is_rc) = canonical_kmer_u64(km, seed_k);
                             if let Some(matches) = seed_to_unitig.get(&can) {
-                                for &(u_idx, _, u_is_rc) in matches {
+                                for &(u_idx, u_is_rc) in matches {
                                     hits.push((u_idx as usize, r_is_rc != u_is_rc, i));
                                 }
                             }
@@ -209,7 +209,8 @@ impl LongReadResolver {
                         continue;
                     }
 
-                    hits.sort_by_key(|h| (h.0, h.1, h.2));
+                    hits.sort_unstable_by_key(|h| (h.0, h.1, h.2));
+                    hits.dedup();
                     let mut raw_anchors: Vec<ReadAnchor> = Vec::new();
 
                     let mut cur_u = hits[0].0;
@@ -287,7 +288,7 @@ impl LongReadResolver {
 
                     let n_anchors = ordered_anchors.len();
                     for i in 0..n_anchors {
-                        let mut left_anchor = &ordered_anchors[i];
+                        let left_anchor = &ordered_anchors[i];
                         if !is_unique_flank[left_anchor.u_idx] {
                             continue;
                         }
@@ -297,9 +298,7 @@ impl LongReadResolver {
                         for j in (i + 1)..n_anchors {
                             let cand = &ordered_anchors[j];
                             if cand.u_idx == left_anchor.u_idx {
-                                left_anchor = cand;
-                                reps_list.clear();
-                                continue;
+                                break;
                             }
                             if is_repeat[cand.u_idx] {
                                 if reps_list.last().map(|&(u, _)| u) != Some(cand.u_idx) {
@@ -461,10 +460,12 @@ impl LongReadResolver {
                 for step_idx in 0..path_reps.len() {
                     for &(rep_u, rep_rev) in &path_reps[step_idx] {
                         visited_unitigs[rep_u] = true;
-                        let r_seq = if rep_rev {
-                            revcomp_bytes(&unitigs[rep_u].sequence)
+                        let r_rc;
+                        let r_seq: &[u8] = if rep_rev {
+                            r_rc = revcomp_bytes(&unitigs[rep_u].sequence);
+                            &r_rc
                         } else {
-                            unitigs[rep_u].sequence.clone()
+                            &unitigs[rep_u].sequence
                         };
                         let max_ov = k1.min(seq.len()).min(r_seq.len());
                         let mut ov_found = 0;
@@ -478,21 +479,22 @@ impl LongReadResolver {
                         }
                         if ov_found >= min_ov {
                             seq.extend_from_slice(&r_seq[ov_found..]);
-                            total_bp += r_seq.len() - ov_found;
                         } else {
                             seq.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
-                            seq.extend_from_slice(&r_seq);
-                            total_bp += r_seq.len() + 20;
+                            seq.extend_from_slice(r_seq);
                         }
+                        total_bp += r_seq.len();
                         cov_sum += unitigs[rep_u].mean_coverage * r_seq.len() as f64;
                         total_kmers += unitigs[rep_u].kmers_count;
                     }
 
                     let (nxt_u, nxt_rev) = path_unitigs[step_idx + 1];
-                    let n_seq = if nxt_rev {
-                        revcomp_bytes(&unitigs[nxt_u].sequence)
+                    let n_rc;
+                    let n_seq: &[u8] = if nxt_rev {
+                        n_rc = revcomp_bytes(&unitigs[nxt_u].sequence);
+                        &n_rc
                     } else {
-                        unitigs[nxt_u].sequence.clone()
+                        &unitigs[nxt_u].sequence
                     };
 
                     let max_ov = k1.min(seq.len()).min(n_seq.len());
@@ -508,12 +510,11 @@ impl LongReadResolver {
 
                     if ov_found >= min_ov {
                         seq.extend_from_slice(&n_seq[ov_found..]);
-                        total_bp += n_seq.len() - ov_found;
                     } else {
                         seq.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
-                        seq.extend_from_slice(&n_seq);
-                        total_bp += n_seq.len() + 20;
+                        seq.extend_from_slice(n_seq);
                     }
+                    total_bp += n_seq.len();
                     cov_sum += unitigs[nxt_u].mean_coverage * n_seq.len() as f64;
                     total_kmers += unitigs[nxt_u].kmers_count;
                 }

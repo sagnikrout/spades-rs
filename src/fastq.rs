@@ -97,7 +97,10 @@ pub fn extract_barcode_from_header(header: &[u8]) -> Option<u64> {
     }
     // Check delimiter format `@read_id#ACGT...`
     if let Some(pos) = header_str.find('#') {
-        let tail = header_str[pos + 1..].trim();
+        let tail = header_str[pos + 1..]
+            .split_whitespace()
+            .next()
+            .unwrap_or("");
         let bc_str = tail.split('/').next().unwrap_or(tail);
         return encode_barcode_str(bc_str);
     }
@@ -109,7 +112,8 @@ fn encode_barcode_str(bc_str: &str) -> Option<u64> {
     let clean_str = bc_str.trim();
     // Strip trailing -1, -2, etc. multiplex suffix if present
     let clean_str = if let Some(idx) = clean_str.rfind('-') {
-        if clean_str[idx + 1..].chars().all(|c| c.is_ascii_digit()) {
+        let suffix = &clean_str[idx + 1..];
+        if !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) {
             &clean_str[..idx]
         } else {
             clean_str
@@ -183,7 +187,15 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
         }
     }
 
-    let is_fastq = first_byte[0] == b'@';
+    let is_fastq = match first_byte[0] {
+        b'@' => true,
+        b'>' => false,
+        other => anyhow::bail!(
+            "Malformed FASTQ/FASTA file {:?}: expected '@' or '>' header, found {:?}",
+            path,
+            other as char
+        ),
+    };
 
     if is_fastq {
         let mut header = Vec::with_capacity(512);
@@ -227,6 +239,13 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
             while qual_buf.ends_with(b"\n") || qual_buf.ends_with(b"\r") {
                 qual_buf.pop();
             }
+            if seq_buf.len() != qual_buf.len() {
+                anyhow::bail!(
+                    "Malformed FASTQ record: sequence length ({}) != quality length ({})",
+                    seq_buf.len(),
+                    qual_buf.len()
+                );
+            }
 
             // Auto-detect Phred encoding from early reads when no override given
             if !phred_detected && !qual_buf.is_empty() {
@@ -243,7 +262,7 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
             if !seq_buf.is_empty() {
                 if let Some(cfg) = filter {
                     // 1. 3' quality score trimming
-                    let mut valid_len = seq_buf.len().min(qual_buf.len());
+                    let mut valid_len = seq_buf.len();
                     while valid_len > 0 {
                         let q_char = qual_buf[valid_len - 1];
                         let q_score = q_char.saturating_sub(phred_offset);
@@ -380,6 +399,16 @@ pub fn parse_linked_reads_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<Linke
 
         while seq.ends_with(b"\n") || seq.ends_with(b"\r") {
             seq.pop();
+        }
+        while qual.ends_with(b"\n") || qual.ends_with(b"\r") {
+            qual.pop();
+        }
+        if seq.len() != qual.len() {
+            anyhow::bail!(
+                "Malformed FASTQ record in linked reads: sequence length ({}) != quality length ({})",
+                seq.len(),
+                qual.len()
+            );
         }
 
         if !seq.is_empty() {

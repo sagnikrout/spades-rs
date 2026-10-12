@@ -1,9 +1,18 @@
-import csv
 import glob
 import os
+import sys
 
-ref_dir = 'data/zymo/references/ZymoBIOMICS.STD.refseq.v2/Genomes/'
+ref_dir = sys.argv[1] if len(sys.argv) > 1 else 'data/zymo/references/ZymoBIOMICS.STD.refseq.v2/Genomes/'
+tsv_file = sys.argv[2] if len(sys.argv) > 2 else 'output/bench_zymo/quast_report/contigs_reports/all_alignments_contigs.tsv'
+
+if not os.path.exists(ref_dir):
+    print(f"Error: Reference directory '{ref_dir}' not found.")
+    sys.exit(1)
+
 files = sorted(glob.glob(os.path.join(ref_dir, '*.fasta')))
+if not files:
+    print(f"Error: No .fasta files found in '{ref_dir}'.")
+    sys.exit(1)
 
 species_lens = {}
 for f in files:
@@ -16,27 +25,29 @@ for f in files:
     species_lens[sp_name] = bp
 
 # Extract covered intervals per species
-tsv_file = 'output/bench_zymo/quast_report/contigs_reports/all_alignments_contigs.tsv'
 covered = {sp: {} for sp in species_lens}
 
-with open(tsv_file, 'r') as f:
-    for line in f:
-        parts = line.strip().split('\t')
-        if len(parts) >= 6 and parts[0].isdigit() and parts[1].isdigit():
-            s = int(parts[0])
-            e = int(parts[1])
-            ref_name = parts[4] # e.g. Bacillus_subtilis_contig_1
-            # extract species prefix
-            sp = None
-            for s_name in species_lens:
-                if ref_name.startswith(s_name):
-                    sp = s_name
-                    break
-            if sp:
-                if ref_name not in covered[sp]:
-                    covered[sp][ref_name] = []
-                if s > e: s, e = e, s
-                covered[sp][ref_name].append((s, e))
+if os.path.exists(tsv_file):
+    with open(tsv_file, 'r') as f:
+        for line in f:
+            parts = line.strip().split('\t')
+            if len(parts) >= 6 and parts[0].isdigit() and parts[1].isdigit():
+                s = int(parts[0])
+                e = int(parts[1])
+                ref_name = parts[4] # e.g. Bacillus_subtilis_contig_1
+                # extract species prefix
+                sp = None
+                for s_name in species_lens:
+                    if ref_name.startswith(s_name):
+                        sp = s_name
+                        break
+                if sp:
+                    if ref_name not in covered[sp]:
+                        covered[sp][ref_name] = []
+                    if s > e: s, e = e, s
+                    covered[sp][ref_name].append((s, e))
+else:
+    print(f"Warning: Alignments file '{tsv_file}' not found. Reporting 0% recovery.")
 
 print("=" * 85)
 print(f"{'Species':<28} | {'Ref Length':>12} | {'Assembled Bp':>14} | {'Recovery %':>10} | {'Status'}")
@@ -74,7 +85,7 @@ for sp, ref_len in sorted(species_lens.items(), key=lambda x: x[1]):
     print(f"{sp:<28} | {ref_len:>10,d} bp | {sp_cov:>12,d} bp | {pct:>9.2f}% | {status}")
 
 print("-" * 85)
-bact_pct = (bacterial_cov / bacterial_ref) * 100.0
+bact_pct = (bacterial_cov / bacterial_ref) * 100.0 if bacterial_ref > 0 else 0.0
 print(f"{'8 BACTERIAL SPECIES':<28} | {bacterial_ref:>10,d} bp | {bacterial_cov:>12,d} bp | {bact_pct:>9.2f}% | DOMINANT COMMUNITY")
-total_pct = (total_cov / total_ref) * 100.0
+total_pct = (total_cov / total_ref) * 100.0 if total_ref > 0 else 0.0
 print(f"{'COMBINED 10 SPECIES':<28} | {total_ref:>10,d} bp | {total_cov:>12,d} bp | {total_pct:>9.2f}% | TOTAL METAGENOME")

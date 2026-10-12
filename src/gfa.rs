@@ -11,12 +11,12 @@ use std::path::Path;
 
 /// Exports assembly graph unitigs and links into GFA v1.1 format.
 pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P) -> Result<()> {
-    let file = File::create(out_path)?;
-    let mut writer = std::io::BufWriter::with_capacity(1024 * 1024, file);
     if k < 2 {
         anyhow::bail!("k must be at least 2 for GFA link generation, got {}", k);
     }
     let k1 = k - 1;
+    let file = File::create(out_path)?;
+    let mut writer = std::io::BufWriter::with_capacity(1024 * 1024, file);
 
     // 1. Header
     writeln!(writer, "H\tVN:Z:1.1")?;
@@ -60,11 +60,13 @@ pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P
         let suffix_fwd = &u_i.sequence[u_i.sequence.len() - k1..];
         if let Some(targets) = prefix_map.get(suffix_fwd) {
             for &(target_id, target_strand) in targets {
-                writeln!(
-                    writer,
-                    "L\t{}\t+\t{}\t{}\t{}M",
-                    u_i.id, target_id, target_strand, k1
-                )?;
+                if target_id != u_i.id || target_strand == '+' {
+                    writeln!(
+                        writer,
+                        "L\t{}\t+\t{}\t{}\t{}M",
+                        u_i.id, target_id, target_strand, k1
+                    )?;
+                }
             }
         }
 
@@ -72,8 +74,9 @@ pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P
         let suffix_rev = crate::dna::revcomp_bytes(&u_i.sequence[..k1]);
         if let Some(targets) = prefix_map.get(&suffix_rev) {
             for &(target_id, target_strand) in targets {
-                // To avoid duplicate mirror links, only emit if target_id != u_i.id or target_strand == '+'
-                if target_id != u_i.id || target_strand == '+' {
+                // Skip all self-links here: (u_i, '-') -> (u_i, '-') is the mirror of (+, +),
+                // and (u_i, '-') -> (u_i, '+') is a 5' palindromic (k-1)-mer artifact.
+                if target_id != u_i.id {
                     writeln!(
                         writer,
                         "L\t{}\t-\t{}\t{}\t{}M",

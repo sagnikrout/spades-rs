@@ -130,7 +130,7 @@ def main():
     pe_intact_95 = 0
     pe_partial = 0
     
-    for locus, g in pe_ppe_genes.items():
+    for g in pe_ppe_genes.values():
         g_start, g_end = g["start"], g["end"]
         
         # Calculate maximum continuous alignment coverage of the gene
@@ -150,9 +150,10 @@ def main():
         elif frac >= 50.0:
             pe_partial += 1
             
-    print(f"  >= 99% Complete (Zero-break full length): {pe_intact_99} / {len(pe_ppe_genes)} ({pe_intact_99/len(pe_ppe_genes)*100:.1f}%)")
-    print(f"  >= 95% Complete (Coding domain intact):   {pe_intact_95} / {len(pe_ppe_genes)} ({pe_intact_95/len(pe_ppe_genes)*100:.1f}%)")
-    print(f"  Partial (>50%):                           {pe_partial} / {len(pe_ppe_genes)} ({pe_partial/len(pe_ppe_genes)*100:.1f}%)")
+    total_pe = max(1, len(pe_ppe_genes))
+    print(f"  >= 99% Complete (Zero-break full length): {pe_intact_99} / {len(pe_ppe_genes)} ({pe_intact_99/total_pe*100:.1f}%)")
+    print(f"  >= 95% Complete (Coding domain intact):   {pe_intact_95} / {len(pe_ppe_genes)} ({pe_intact_95/total_pe*100:.1f}%)")
+    print(f"  Partial (>50%):                           {pe_partial} / {len(pe_ppe_genes)} ({pe_partial/total_pe*100:.1f}%)")
     print("================================================================================\n")
 
 if __name__ == "__main__":

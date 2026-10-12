@@ -112,10 +112,12 @@ def main():
     print("-" * 80)
     
     intact_rrna = 0
+    total_rrna = 0
     for rrf in rrna_files:
         bname = os.path.basename(rrf).replace('.fasta', '')
         seqs = load_fasta(rrf)
-        for h, seq in seqs.items():
+        for _, seq in seqs.items():
+            total_rrna += 1
             rtype = "16S" if "16S" in bname else ("18S" if "18S" in bname else "ssrRNA")
             cov, best_c = find_best_alignment(seq, contig_index, k=25)
             cov_pct = cov * 100.0
@@ -126,7 +128,7 @@ def main():
             print(f"{bname[:38]:<38} | {rtype:<6} | {len(seq):>5}bp | {c_disp:<20} | {cov_pct:>6.1f}% | {status}")
             
     print("-" * 80)
-    print(f"Total ssrRNA Operons Preserved: {intact_rrna}/{len(rrna_files)}")
+    print(f"Total ssrRNA Operons Preserved: {intact_rrna}/{total_rrna}")
 
 if __name__ == '__main__':
     main()

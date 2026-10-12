@@ -3,8 +3,17 @@ import glob
 import os
 import sys
 
-ref_dir = 'data/zymo/references/ZymoBIOMICS.STD.refseq.v2/Genomes/'
+ref_dir = sys.argv[1] if len(sys.argv) > 1 else 'data/zymo/references/ZymoBIOMICS.STD.refseq.v2/Genomes/'
+fq_file = sys.argv[2] if len(sys.argv) > 2 else 'data/zymo/zymo_R1.fq.gz'
+
+if not os.path.exists(ref_dir):
+    print(f"Error: Reference directory '{ref_dir}' not found.")
+    sys.exit(1)
+
 files = sorted(glob.glob(os.path.join(ref_dir, '*.fasta')))
+if not files:
+    print(f"Error: No .fasta files found in '{ref_dir}'.")
+    sys.exit(1)
 
 print("Building reference 31-mer tables for all 10 species...")
 species_kmers = {}
@@ -31,12 +40,17 @@ def revcomp(s):
     tr = str.maketrans('ACGTN', 'TGCAN')
     return s.translate(tr)[::-1]
 
-print("\nSampling 10,000 raw reads from data/zymo/zymo_R1.fq.gz...")
+if not os.path.exists(fq_file):
+    print(f"Error: FASTQ file '{fq_file}' not found.")
+    sys.exit(1)
+
+print(f"\nSampling 10,000 raw reads from {fq_file}...")
 counts = {sp: 0 for sp in species_kmers}
 unassigned = 0
 total_tested = 0
 
-with gzip.open('data/zymo/zymo_R1.fq.gz', 'rt') as f:
+open_fn = gzip.open if fq_file.endswith('.gz') else open
+with open_fn(fq_file, 'rt') as f:
     for i, line in enumerate(f):
         if i % 4 == 1:
             read = line.strip().upper()
@@ -60,11 +74,12 @@ with gzip.open('data/zymo/zymo_R1.fq.gz', 'rt') as f:
 print("=" * 65)
 print(f"{'Species':<28} | {'Read Count':>12} | {'Percentage':>10}")
 print("-" * 65)
+denom = max(1, total_tested)
 for sp, cnt in sorted(counts.items(), key=lambda x: x[1], reverse=True):
-    pct = (cnt / total_tested) * 100.0
+    pct = (cnt / denom) * 100.0
     print(f"{sp:<28} | {cnt:>12,d} | {pct:>9.2f}%")
 print("-" * 65)
-unass_pct = (unassigned / total_tested) * 100.0
+unass_pct = (unassigned / denom) * 100.0
 print(f"{'Unassigned / Ambiguous':<28} | {unassigned:>12,d} | {unass_pct:>9.2f}%")
 print(f"{'TOTAL TESTED':<28} | {total_tested:>12,d} | 100.00%")
 print("=" * 65)

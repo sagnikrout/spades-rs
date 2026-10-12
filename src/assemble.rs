@@ -348,8 +348,9 @@ pub fn run_assembly_with_packed_reads(
                 println!("─── [Stage 6.5] Spaligner Hybrid Long-Read Bridging ───");
                 let mut lr_seqs = Vec::new();
                 for p in lr_paths {
-                    if let Ok(reads) = parse_reads_from_file(p) {
-                        lr_seqs.extend(reads);
+                    match parse_reads_from_file(p) {
+                        Ok(reads) => lr_seqs.extend(reads),
+                        Err(e) => eprintln!("  Warning: Failed to read long reads {:?}: {}", p, e),
                     }
                 }
                 let bridged = crate::spaligner::LongReadResolver {
@@ -373,23 +374,30 @@ pub fn run_assembly_with_packed_reads(
         contigs
     };
 
-    let contigs = if let Some(ref lr_paths) = config.linked_reads {
-        if !lr_paths.is_empty() {
-            println!("─── [Stage 6.6] SpLitteR Linked-Read Barcode Repeat Resolution ───");
-            let mut all_linked = Vec::new();
-            for p in lr_paths {
-                if let Ok(records) = crate::fastq::parse_linked_reads_from_file(p) {
-                    all_linked.extend(records);
+    let contigs = if !config.skip_repeat_resolution {
+        if let Some(ref lr_paths) = config.linked_reads {
+            if !lr_paths.is_empty() {
+                println!("─── [Stage 6.6] SpLitteR Linked-Read Barcode Repeat Resolution ───");
+                let mut all_linked = Vec::new();
+                for p in lr_paths {
+                    match crate::fastq::parse_linked_reads_from_file(p) {
+                        Ok(records) => all_linked.extend(records),
+                        Err(e) => {
+                            eprintln!("  Warning: Failed to read linked reads {:?}: {}", p, e)
+                        }
+                    }
                 }
+                let bridged = crate::splitter::LinkedReadResolver::new(k)
+                    .bridge_with_linked_reads(contigs, &all_linked);
+                println!(
+                    "  Contigs after linked-read repeat resolution: {} (Elapsed: {:.3}s)",
+                    bridged.len(),
+                    start_time.elapsed().as_secs_f64()
+                );
+                bridged
+            } else {
+                contigs
             }
-            let bridged = crate::splitter::LinkedReadResolver::new(k)
-                .bridge_with_linked_reads(contigs, &all_linked);
-            println!(
-                "  Contigs after linked-read repeat resolution: {} (Elapsed: {:.3}s)",
-                bridged.len(),
-                start_time.elapsed().as_secs_f64()
-            );
-            bridged
         } else {
             contigs
         }
@@ -437,7 +445,11 @@ pub fn run_assembly_with_packed_reads(
             careful: config.careful,
         };
         let (polished_c, fixes_c) = polisher.polish_contigs_packed(contigs, packed);
-        let (polished_s, fixes_s) = polisher.polish_contigs_packed(scaffolds, packed);
+        let (polished_s, fixes_s) = if packed.is_paired() {
+            polisher.polish_contigs_packed(scaffolds, packed)
+        } else {
+            (polished_c.clone(), 0)
+        };
         println!(
             "  Polished {} base discrepancies across contigs and scaffolds (Elapsed: {:.3}s)",
             fixes_c + fixes_s,
@@ -542,7 +554,7 @@ pub fn calculate_stats(contigs: &[crate::graph::Unitig]) -> AssemblyStats {
     }
     let max_contig_length = lengths[0];
 
-    let half_total = total_length / 2;
+    let half_total = total_length.div_ceil(2);
     let mut cumulative = 0;
     let mut n50 = 0;
     let mut l50 = 0;

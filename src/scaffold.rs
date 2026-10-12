@@ -84,10 +84,12 @@ impl LocalGapCloser {
                 }
             }
 
-            let oriented_seq = if is_rc && !has_fwd {
-                revcomp_bytes(read)
+            let rc_buf;
+            let oriented_seq: &[u8] = if is_rc && !has_fwd {
+                rc_buf = revcomp_bytes(read);
+                &rc_buf
             } else {
-                read.to_vec()
+                read
             };
 
             for i in 0..=(oriented_seq.len() - k) {
@@ -197,7 +199,11 @@ impl Scaffolder {
         packed: Option<&crate::packed_reads::PackedReads>,
     ) -> Vec<Unitig> {
         if contigs.len() <= 1 {
-            return contigs.to_vec();
+            let mut out = contigs.to_vec();
+            for (idx, u) in out.iter_mut().enumerate() {
+                u.id = idx;
+            }
+            return out;
         }
 
         let n = contigs.len();
@@ -230,7 +236,8 @@ impl Scaffolder {
 
             let mut current_seq = contigs[i].sequence.clone();
             let mut current_cov = contigs[i].mean_coverage * contigs[i].sequence.len() as f64;
-            let mut current_len = contigs[i].sequence.len();
+            let mut cov_weight_len = contigs[i].sequence.len();
+            let mut total_kmers = contigs[i].kmers_count;
             visited[i] = true;
             let mut curr = i;
 
@@ -245,19 +252,16 @@ impl Scaffolder {
                 let next_seq = &contigs[next_idx].sequence;
                 if let Some(merged) = gap_closer.close_gap(&current_seq, next_seq, &candidate_refs)
                 {
-                    let added_len = merged.len().saturating_sub(current_seq.len());
-                    current_cov +=
-                        contigs[next_idx].mean_coverage * contigs[next_idx].sequence.len() as f64;
-                    current_len += added_len;
                     current_seq = merged;
                 } else {
                     // Insert gap
                     current_seq.extend(std::iter::repeat_n(b'N', self.default_gap_len));
                     current_seq.extend_from_slice(next_seq);
-                    current_cov +=
-                        contigs[next_idx].mean_coverage * contigs[next_idx].sequence.len() as f64;
-                    current_len += contigs[next_idx].sequence.len() + self.default_gap_len;
                 }
+                current_cov +=
+                    contigs[next_idx].mean_coverage * contigs[next_idx].sequence.len() as f64;
+                cov_weight_len += contigs[next_idx].sequence.len();
+                total_kmers += contigs[next_idx].kmers_count;
 
                 visited[next_idx] = true;
                 curr = next_idx;
@@ -266,17 +270,20 @@ impl Scaffolder {
             scaffolds.push(Unitig {
                 id: scaffold_id,
                 sequence: current_seq,
-                mean_coverage: if current_len > 0 {
-                    current_cov / current_len as f64
+                mean_coverage: if cov_weight_len > 0 {
+                    current_cov / cov_weight_len as f64
                 } else {
                     10.0
                 },
-                kmers_count: current_len,
+                kmers_count: total_kmers,
             });
             scaffold_id += 1;
         }
 
         scaffolds.sort_by_key(|a| std::cmp::Reverse(a.sequence.len()));
+        for (idx, s) in scaffolds.iter_mut().enumerate() {
+            s.id = idx;
+        }
         scaffolds
     }
 

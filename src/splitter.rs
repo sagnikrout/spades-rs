@@ -53,8 +53,8 @@ impl LinkedReadResolver {
         let k = self.k;
 
         // Step 1: Index unique k-mer anchors across contigs
-        // Build map: canonical k-mer -> (contig_idx, is_rc, pos)
-        let mut kmer_to_contig: HashMap<Kmer256, (usize, bool, usize)> = HashMap::new();
+        // Build map: canonical k-mer -> contig_idx
+        let mut kmer_to_contig: HashMap<Kmer256, usize> = HashMap::new();
         let mut ambiguous_kmers: HashSet<Kmer256> = HashSet::new();
 
         for (c_idx, c) in contigs.iter().enumerate() {
@@ -63,17 +63,17 @@ impl LinkedReadResolver {
             }
             for i in 0..=(c.sequence.len() - k) {
                 if let Some(kmer) = Kmer256::from_bytes(&c.sequence[i..i + k], k) {
-                    let (can, is_rc) = kmer.canonical(k);
+                    let (can, _) = kmer.canonical(k);
                     if ambiguous_kmers.contains(&can) {
                         continue;
                     }
-                    if let Some(&(existing_c, _, _)) = kmer_to_contig.get(&can) {
+                    if let Some(&existing_c) = kmer_to_contig.get(&can) {
                         if existing_c != c_idx {
                             kmer_to_contig.remove(&can);
                             ambiguous_kmers.insert(can);
                         }
                     } else {
-                        kmer_to_contig.insert(can, (c_idx, is_rc, i));
+                        kmer_to_contig.insert(can, c_idx);
                     }
                 }
             }
@@ -107,7 +107,7 @@ impl LinkedReadResolver {
                     for i in (0..=(seq.len() - k)).step_by(step) {
                         if let Some(kmer) = Kmer256::from_bytes(&seq[i..i + k], k) {
                             let (can, _) = kmer.canonical(k);
-                            if let Some(&(c_idx, _, _)) = kmer_to_contig.get(&can) {
+                            if let Some(&c_idx) = kmer_to_contig.get(&can) {
                                 visited.insert(c_idx);
                             }
                         }
@@ -140,8 +140,8 @@ impl LinkedReadResolver {
             .filter(|&(_, count)| count >= self.min_shared_barcodes)
             .collect();
 
-        // Sort descending by barcode support
-        candidates.sort_unstable_by_key(|a| std::cmp::Reverse(a.1));
+        // Sort descending by barcode support, breaking ties deterministically by contig pair
+        candidates.sort_unstable_by_key(|a| (std::cmp::Reverse(a.1), a.0));
 
         if candidates.is_empty() {
             return contigs;
@@ -239,6 +239,10 @@ impl LinkedReadResolver {
             }
         }
 
+        chained.sort_by_key(|u| std::cmp::Reverse(u.sequence.len()));
+        for (idx, u) in chained.iter_mut().enumerate() {
+            u.id = idx;
+        }
         chained
     }
 }

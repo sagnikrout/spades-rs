@@ -51,14 +51,17 @@ impl PlasmidDetector {
 
         for u in unitigs {
             let len = u.sequence.len();
-            // Check topological circularity (matching prefix and suffix overlap of length >= 15 up to k-1)
-            let is_circular = if (20..=450_000).contains(&len) {
+            // Check topological circularity (matching prefix and suffix overlap up to k-1)
+            let is_circular = if k1 > 0 && (20..=450_000).contains(&len) {
+                let min_overlap = 15.min(k1);
                 let max_overlap = k1.min(len / 2);
                 let mut circular = false;
-                for check_k in (15..=max_overlap).rev() {
-                    if u.sequence[..check_k] == u.sequence[len - check_k..] {
-                        circular = true;
-                        break;
+                if max_overlap >= min_overlap {
+                    for check_k in (min_overlap..=max_overlap).rev() {
+                        if u.sequence[..check_k] == u.sequence[len - check_k..] {
+                            circular = true;
+                            break;
+                        }
                     }
                 }
                 circular

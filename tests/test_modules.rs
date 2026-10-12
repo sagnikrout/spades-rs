@@ -42,7 +42,7 @@ fn test_plasmid_detector() {
             sequence: seq_short,
             mean_coverage: 100.0,
             kmers_count: 50,
-        }, // High copy but len 24 < min_plasmid_len (20? wait, I changed min to 20, so 24 >= 20. I should make it 19)
+        }, // High copy but len 19 < min_plasmid_len (20) -> Chromosomal
         Unitig {
             id: 2,
             sequence: seq_plasmid,

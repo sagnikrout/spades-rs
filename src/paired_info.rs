@@ -32,9 +32,12 @@ pub struct PairedInfoIndex {
 
 impl PairedInfoIndex {
     fn build_kmer_index(k: usize, unitigs: &[Unitig]) -> HashMap<Kmer256, (usize, usize)> {
+        if k == 0 || k > 128 {
+            return HashMap::new();
+        }
         let total_kmers: usize = unitigs
             .iter()
-            .map(|u| u.sequence.len().saturating_sub(k - 1))
+            .map(|u| u.sequence.len().saturating_sub(k.saturating_sub(1)))
             .sum();
         let mut kmer_to_unitig: HashMap<Kmer256, (usize, usize)> =
             HashMap::with_capacity(total_kmers);
@@ -68,7 +71,7 @@ impl PairedInfoIndex {
         k: usize,
         kmer_to_unitig: &HashMap<Kmer256, (usize, usize)>,
     ) -> Option<(usize, usize)> {
-        if seq.len() < k {
+        if k == 0 || k > 128 || seq.len() < k {
             return None;
         }
         let last_start = seq.len() - k;
@@ -160,15 +163,18 @@ impl PairedInfoIndex {
     pub fn build(k: usize, unitigs: &[Unitig], reads1: &[Vec<u8>], reads2: &[Vec<u8>]) -> Self {
         let kmer_to_unitig = Self::build_kmer_index(k, unitigs);
         let num_pairs = reads1.len().min(reads2.len());
-        let pair_indices: Vec<usize> = (0..num_pairs).collect();
+        let chunk_size = 4096usize;
+        let num_chunks = num_pairs.div_ceil(chunk_size);
 
         #[allow(clippy::type_complexity)]
-        let thread_results: Vec<(Vec<f64>, HashMap<(usize, usize), u32>)> = pair_indices
-            .par_chunks(4096)
-            .map(|chunk| {
+        let thread_results: Vec<(Vec<f64>, HashMap<(usize, usize), u32>)> = (0..num_chunks)
+            .into_par_iter()
+            .map(|c_idx| {
+                let start = c_idx * chunk_size;
+                let end = (start + chunk_size).min(num_pairs);
                 let mut local_dists = Vec::new();
                 let mut local_links: HashMap<(usize, usize), u32> = HashMap::new();
-                for &i in chunk {
+                for i in start..end {
                     let loc1 = Self::map_read(&reads1[i], k, &kmer_to_unitig);
                     let loc2 = Self::map_read(&reads2[i], k, &kmer_to_unitig);
                     Self::record_pair_mapping(
@@ -194,18 +200,21 @@ impl PairedInfoIndex {
     ) -> Self {
         let kmer_to_unitig = Self::build_kmer_index(k, unitigs);
         let num_pairs = packed.pe_count();
-        let pair_indices: Vec<usize> = (0..num_pairs).collect();
+        let chunk_size = 4096usize;
+        let num_chunks = num_pairs.div_ceil(chunk_size);
 
         #[allow(clippy::type_complexity)]
-        let thread_results: Vec<(Vec<f64>, HashMap<(usize, usize), u32>)> = pair_indices
-            .par_chunks(4096)
-            .map(|chunk| {
+        let thread_results: Vec<(Vec<f64>, HashMap<(usize, usize), u32>)> = (0..num_chunks)
+            .into_par_iter()
+            .map(|c_idx| {
+                let start = c_idx * chunk_size;
+                let end = (start + chunk_size).min(num_pairs);
                 let mut buf1 = Vec::with_capacity(512);
                 let mut buf2 = Vec::with_capacity(512);
                 let mut local_dists = Vec::new();
                 let mut local_links: HashMap<(usize, usize), u32> = HashMap::new();
 
-                for &p in chunk {
+                for p in start..end {
                     packed.get_pair(p, &mut buf1, &mut buf2);
                     let loc1 = Self::map_read(&buf1, k, &kmer_to_unitig);
                     let loc2 = Self::map_read(&buf2, k, &kmer_to_unitig);

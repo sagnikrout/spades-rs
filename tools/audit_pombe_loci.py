@@ -9,7 +9,6 @@ against de novo assembled contigs/scaffolds.
 """
 
 import sys
-import os
 
 def load_fasta(filepath):
     sequences = {}
@@ -134,7 +133,7 @@ def main():
     intact_count = 0
     total_targets = len(targets)
     
-    for name, (chrom, s, e, locus_id) in targets.items():
+    for name, (chrom, s, e, _) in targets.items():
         gene_len = e - s + 1
         gene_seq = ref_seqs[chrom][s-1:e]
         cov, best_c = find_best_alignment(gene_seq, contig_index, k=25)

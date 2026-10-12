@@ -74,7 +74,7 @@ def main():
     chr_alignments = {acc: [] for acc in chr_lengths}
 
     with open(align_tsv) as f:
-        header = f.readline()
+        _ = f.readline()
         for line in f:
             line = line.strip()
             if not line or line.startswith("CONTIG") or "inconsistency" in line or "indel:" in line or "relocation" in line or "translocation" in line:
@@ -154,8 +154,11 @@ def main():
         print(f"{name:<12} {acc:<14} {length:>12,d} {cov_count:>13,d} {pct:>9.2f}% {max_c:>12,d}")
 
     print("-" * 80)
-    overall_pct = (total_covered / total_ref) * 100.0
+    overall_pct = (total_covered / total_ref) * 100.0 if total_ref > 0 else 0.0
     print(f"{'TOTAL GENOME':<27} {total_ref:>12,d} {total_covered:>13,d} {overall_pct:>9.2f}%")
+    if total_non_rdna_ref > 0:
+        non_rdna_pct = (total_non_rdna_cov / total_non_rdna_ref) * 100.0
+        print(f"{'NON-RDNA NUCLEAR':<27} {total_non_rdna_ref:>12,d} {total_non_rdna_cov:>13,d} {non_rdna_pct:>9.2f}%")
     print("=" * 80)
 
     # 5. Centromeric synteny audit

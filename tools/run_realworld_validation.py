@@ -13,7 +13,8 @@ import json
 import shutil
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-BIN_PATH = os.path.join(ROOT_DIR, "target", "release", "spades-rs")
+BIN_NAME = "spades-rs.exe" if os.name == "nt" else "spades-rs"
+BIN_PATH = os.path.join(ROOT_DIR, "target", "release", BIN_NAME)
 TEST_OUT_DIR = os.path.join(ROOT_DIR, "target", "realworld_test_runs")
 sys.path.insert(0, os.path.join(ROOT_DIR, "tools"))
 from eval_assembly import evaluate_assembly
@@ -49,7 +50,7 @@ def run_scenario(scenario, out_dir):
     print(f"  {YELLOW}Command:{RESET} {cmd_str}")
 
     t0 = time.time()
-    res = subprocess.run(full_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    res = subprocess.run(full_cmd, cwd=ROOT_DIR, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     elapsed = time.time() - t0
 
     passed = True
@@ -81,8 +82,8 @@ def run_scenario(scenario, out_dir):
                       f"{GREEN}N50:{RESET} {metrics.get('N50 (bp)', 'N/A')} bp, "
                       f"{GREEN}Total:{RESET} {metrics.get('Total length (bp)', 'N/A')} bp, "
                       f"{GREEN}GC:{RESET} {metrics.get('GC (%)', 'N/A')}%")
-                if "Genome fraction (%)" in metrics:
-                    print(f"  {GREEN}Genome Fraction:{RESET} {metrics['Genome fraction (%)']}%")
+                if "Reference Genome Fraction (%)" in metrics:
+                    print(f"  {GREEN}Genome Fraction:{RESET} {metrics['Reference Genome Fraction (%)']}%")
 
             # Run custom check function if present
             if scenario.check_fn:
@@ -121,7 +122,7 @@ def main():
         TestScenario(
             name="1. Viral Control (PhiX174)",
             description="Circular ssDNA ground truth control assembly (paired-end)",
-            cmd_args=["-1", "data/phix/wgs_1.fq.gz", "-2", "data/phix/wgs_2.fq.gz", "-k", "31"],
+            cmd_args=["-1", "data/phix/phix_std_1.fq.gz", "-2", "data/phix/phix_std_2.fq.gz", "-k", "31"],
             expected_files=["contigs.fasta", "scaffolds.fasta", "assembly_graph.gfa"],
             ref_genome=os.path.join(ROOT_DIR, "data", "phix", "phix174_ref.fa"),
             check_fn=lambda out, stdout, stderr: (
@@ -148,7 +149,7 @@ def main():
             cmd_args=["-s", "data/modalities/phred64_sample.fq.gz", "-k", "31"],
             expected_files=["contigs.fasta", "scaffolds.fasta"],
             check_fn=lambda out, stdout, stderr: (
-                (True, "") if "Phred" in stdout or "Quality" in stdout or True else (False, "Phred check failed")
+                (True, "") if "Total Contigs:" in stdout else (False, "Phred+64 assembly summary missing")
             )
         ),
         TestScenario(
@@ -162,21 +163,21 @@ def main():
         TestScenario(
             name="6. Deep Multi-K Stepping (k=21..99)",
             description="Multi-k iteration across k=21, 33, 55, 77, 99 (testing k > 64 SIMD math)",
-            cmd_args=["-1", "data/phix/wgs_1.fq.gz", "-2", "data/phix/wgs_2.fq.gz", "--multik", "21,33,55,77,99"],
+            cmd_args=["-1", "data/phix/phix_std_1.fq.gz", "-2", "data/phix/phix_std_2.fq.gz", "--multik", "21,33,55,77,99"],
             expected_files=["contigs.fasta", "scaffolds.fasta", "assembly_graph.gfa"],
             ref_genome=os.path.join(ROOT_DIR, "data", "phix", "phix174_ref.fa")
         ),
         TestScenario(
             name="7. Hybrid PacBio HiFi Bridging (--pacbio)",
             description="Illumina short reads + PacBio HiFi CCS long reads via Spaligner",
-            cmd_args=["-1", "data/phix/wgs_1.fq.gz", "-2", "data/phix/wgs_2.fq.gz", "--pacbio", "data/modalities/pacbio_hifi_ecoli.fq.gz", "-k", "31"],
+            cmd_args=["-1", "data/phix/phix_std_1.fq.gz", "-2", "data/phix/phix_std_2.fq.gz", "--pacbio", "data/modalities/pacbio_hifi_ecoli.fq.gz", "-k", "31"],
             expected_files=["contigs.fasta", "scaffolds.fasta"],
             ref_genome=os.path.join(ROOT_DIR, "data", "phix", "phix174_ref.fa")
         ),
         TestScenario(
             name="8. Barcoded Linked Reads (--splitter)",
             description="10x Genomics barcoded linked reads for SpLitteR repeat resolution",
-            cmd_args=["-1", "data/phix/wgs_1.fq.gz", "-2", "data/phix/wgs_2.fq.gz", "--splitter", "data/modalities/10x_linked_reads.fq.gz", "-k", "31"],
+            cmd_args=["-1", "data/phix/phix_std_1.fq.gz", "-2", "data/phix/phix_std_2.fq.gz", "--splitter", "data/modalities/10x_linked_reads.fq.gz", "-k", "31"],
             expected_files=["contigs.fasta", "scaffolds.fasta"],
             ref_genome=os.path.join(ROOT_DIR, "data", "phix", "phix174_ref.fa")
         ),
@@ -216,13 +217,13 @@ def main():
         TestScenario(
             name="13. Memory Budget Clamping (--max-memory 0.5)",
             description="Enforced low-memory budget ceiling (512 MB) without OOM",
-            cmd_args=["-1", "data/phix/wgs_1.fq.gz", "-2", "data/phix/wgs_2.fq.gz", "-k", "31", "--max-memory", "0.5"],
+            cmd_args=["-1", "data/phix/phix_std_1.fq.gz", "-2", "data/phix/phix_std_2.fq.gz", "-k", "31", "--max-memory", "0.5"],
             expected_files=["contigs.fasta", "scaffolds.fasta"]
         ),
         TestScenario(
             name="14. Concurrency Thread Scaling (-t 1)",
             description="Single-threaded deterministic execution",
-            cmd_args=["-1", "data/phix/wgs_1.fq.gz", "-2", "data/phix/wgs_2.fq.gz", "-k", "31", "-t", "1"],
+            cmd_args=["-1", "data/phix/phix_std_1.fq.gz", "-2", "data/phix/phix_std_2.fq.gz", "-k", "31", "-t", "1"],
             expected_files=["contigs.fasta", "scaffolds.fasta"]
         ),
         TestScenario(
@@ -244,14 +245,14 @@ def main():
         TestScenario(
             name="17. Fault Injection: Even K-mer Rejection (-k 32)",
             description="Even k-mer sizes must be cleanly rejected with error message",
-            cmd_args=["-1", "data/phix/wgs_1.fq.gz", "-2", "data/phix/wgs_2.fq.gz", "-k", "32"],
+            cmd_args=["-1", "data/phix/phix_std_1.fq.gz", "-2", "data/phix/phix_std_2.fq.gz", "-k", "32"],
             expected_files=[],
             expect_failure=True
         ),
         TestScenario(
             name="18. Fault Injection: Out-of-Bounds K-mer (-k 150)",
             description="k > 127 must be cleanly rejected before graph allocation",
-            cmd_args=["-1", "data/phix/wgs_1.fq.gz", "-2", "data/phix/wgs_2.fq.gz", "-k", "150"],
+            cmd_args=["-1", "data/phix/phix_std_1.fq.gz", "-2", "data/phix/phix_std_2.fq.gz", "-k", "150"],
             expected_files=[],
             expect_failure=True
         ),

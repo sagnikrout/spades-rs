@@ -270,11 +270,11 @@ Validates 19 distinct operational scenarios:
 
 ## Codebase layout
 
-The Rust source code is contained in `src/` (4,600 lines, zero dynamic runtime dependencies):
+The Rust source code is contained in `src/` (~8,500 lines across 24 source files, zero dynamic runtime dependencies):
 
 | File | Primary role |
 | :--- | :--- |
-| [`src/main.rs`](src/main.rs) | CLI parsing, argument validation, thread pool setup |
+| [`src/main.rs`](src/main.rs) | Primary `spades-rs` CLI binary, argument validation, thread pool setup |
 | [`src/lib.rs`](src/lib.rs) | Crate root, 64-bit architecture assertion, public exports |
 | [`src/dna.rs`](src/dna.rs) | 2-bit base encoding, 64-bit and 256-bit canonical k-mer arithmetic |
 | [`src/bloom.rs`](src/bloom.rs) | Two-Tier Atomic Bloom filter for memory-bounded k-mer filtering |
@@ -294,6 +294,10 @@ The Rust source code is contained in `src/` (4,600 lines, zero dynamic runtime d
 | [`src/memory.rs`](src/memory.rs) | Memory budget calculations and dynamic Bloom sizing |
 | [`src/gfa.rs`](src/gfa.rs) | Graphical Fragment Assembly (GFA v1.1) exporter |
 | [`src/assemble.rs`](src/assemble.rs) | End-to-end 8-stage assembly pipeline orchestrator |
+| [`src/qc.rs`](src/qc.rs) | FastQC-equivalent read quality control and diagnostic statistics |
+| [`src/eval.rs`](src/eval.rs) | QUAST-equivalent assembly evaluation and reference alignment |
+| [`src/bin/spades_qc.rs`](src/bin/spades_qc.rs) | Standalone read quality control binary (`spades-qc`) |
+| [`src/bin/spades_eval.rs`](src/bin/spades_eval.rs) | Standalone assembly evaluation and validation binary (`spades-eval`) |
 
 ## Attribution and citations
 

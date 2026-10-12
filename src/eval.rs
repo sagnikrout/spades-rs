@@ -380,50 +380,56 @@ pub fn evaluate_assembly(
         }
         metrics.reference_length = Some(ref_len);
 
-        if ref_len >= k && !lengths.is_empty() {
-            let mut covered_ref_kmers = HashSet::new();
-            let mut total_matching_contig_kmers = 0usize;
+        if ref_len >= k {
+            if !lengths.is_empty() {
+                let mut covered_ref_kmers = HashSet::new();
+                let mut total_matching_contig_kmers = 0usize;
 
-            for c_seq in &contigs {
-                if c_seq.len() < min_contig_len || c_seq.len() < k {
-                    continue;
-                }
-                for i in 0..=(c_seq.len() - k) {
-                    if let Some(km) = string_to_kmer(&c_seq[i..i + k], k) {
-                        let (can, _) = canonical_kmer_u64(km, k);
-                        if ref_kmers.contains(&can) {
-                            covered_ref_kmers.insert(can);
-                            total_matching_contig_kmers += 1;
+                for c_seq in &contigs {
+                    if c_seq.len() < min_contig_len || c_seq.len() < k {
+                        continue;
+                    }
+                    for i in 0..=(c_seq.len() - k) {
+                        if let Some(km) = string_to_kmer(&c_seq[i..i + k], k) {
+                            let (can, _) = canonical_kmer_u64(km, k);
+                            if ref_kmers.contains(&can) {
+                                covered_ref_kmers.insert(can);
+                                total_matching_contig_kmers += 1;
+                            }
                         }
                     }
                 }
+
+                let genome_frac = if ref_kmers.is_empty() {
+                    0.0
+                } else {
+                    (covered_ref_kmers.len() as f64 / ref_kmers.len() as f64) * 100.0
+                };
+
+                let dup_ratio = if covered_ref_kmers.is_empty() {
+                    1.0
+                } else {
+                    total_matching_contig_kmers as f64 / covered_ref_kmers.len() as f64
+                };
+
+                metrics.genome_fraction_pct = Some(genome_frac);
+                metrics.duplication_ratio = Some(dup_ratio);
+
+                // Estimate substitution mismatch rate: fraction of covered k-mers
+                // with single-base variations
+                let mismatches =
+                    (ref_kmers.len().saturating_sub(covered_ref_kmers.len())).min(total_len / 50);
+                let mismatches_per_100k = if total_len == 0 {
+                    0.0
+                } else {
+                    (mismatches as f64 / total_len as f64) * 100_000.0
+                };
+                metrics.mismatches_per_100kbp = Some(mismatches_per_100k);
+            } else {
+                metrics.genome_fraction_pct = Some(0.0);
+                metrics.duplication_ratio = Some(1.0);
+                metrics.mismatches_per_100kbp = Some(0.0);
             }
-
-            let genome_frac = if ref_kmers.is_empty() {
-                0.0
-            } else {
-                (covered_ref_kmers.len() as f64 / ref_kmers.len() as f64) * 100.0
-            };
-
-            let dup_ratio = if covered_ref_kmers.is_empty() {
-                1.0
-            } else {
-                total_matching_contig_kmers as f64 / covered_ref_kmers.len() as f64
-            };
-
-            metrics.genome_fraction_pct = Some(genome_frac);
-            metrics.duplication_ratio = Some(dup_ratio);
-
-            // Estimate substitution mismatch rate: fraction of covered k-mers
-            // with single-base variations
-            let mismatches =
-                (ref_kmers.len().saturating_sub(covered_ref_kmers.len())).min(total_len / 50);
-            let mismatches_per_100k = if total_len == 0 {
-                0.0
-            } else {
-                (mismatches as f64 / total_len as f64) * 100_000.0
-            };
-            metrics.mismatches_per_100kbp = Some(mismatches_per_100k);
         }
     }
 
@@ -440,9 +446,9 @@ pub fn polish_assembly_file(
     min_cov: u32,
     careful: bool,
 ) -> Result<usize> {
-    if !(11..=127).contains(&k) {
+    if !(11..=127).contains(&k) || k.is_multiple_of(2) {
         anyhow::bail!(
-            "Polishing k-mer size must be between 11 and 127 (got k={})",
+            "Polishing k-mer size must be an odd integer between 11 and 127 (got k={})",
             k
         );
     }
@@ -481,20 +487,28 @@ pub fn polish_assembly_file(
 
     let (polished_unitigs, corrected_bases) = polisher.polish_contigs(unitigs, &all_reads);
 
-    let mut out_file = File::create(contigs_out)
+    if let Some(parent) = contigs_out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
+    let out_file = File::create(contigs_out)
         .with_context(|| format!("Failed to create polished output: {:?}", contigs_out))?;
+    let mut writer = std::io::BufWriter::new(out_file);
 
     for (idx, u) in polished_unitigs.iter().enumerate() {
         writeln!(
-            out_file,
+            writer,
             ">NODE_{}_length_{}_cov_{:.1}",
             idx + 1,
             u.sequence.len(),
             u.mean_coverage
         )?;
-        out_file.write_all(&u.sequence)?;
-        writeln!(out_file)?;
+        writer.write_all(&u.sequence)?;
+        writeln!(writer)?;
     }
+    writer.flush()?;
 
     Ok(corrected_bases)
 }

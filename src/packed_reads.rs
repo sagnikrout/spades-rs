@@ -92,12 +92,20 @@ impl FastxReader {
                     line_buf,
                 });
             }
-            if buf[0] == b'\n' || buf[0] == b'\r' {
+            if buf[0].is_ascii_whitespace() {
                 buf_reader.read_until(b'\n', &mut line_buf)?;
                 line_buf.clear();
                 continue;
             }
-            is_fastq = buf[0] == b'@';
+            is_fastq = match buf[0] {
+                b'@' => true,
+                b'>' => false,
+                other => anyhow::bail!(
+                    "Malformed FASTQ/FASTA file {:?}: expected '@' or '>' header, found {:?}",
+                    path,
+                    other as char
+                ),
+            };
             break;
         }
 
@@ -204,9 +212,7 @@ impl FastxReader {
                     self.line_buf.pop();
                 }
                 if self.line_buf.starts_with(b">") {
-                    if !seq_out.is_empty() {
-                        return Ok(true);
-                    }
+                    return Ok(true);
                 } else {
                     seq_out.extend_from_slice(&self.line_buf);
                 }

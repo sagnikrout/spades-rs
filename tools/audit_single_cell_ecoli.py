@@ -8,7 +8,6 @@ Audits:
 """
 
 import sys
-import os
 
 def load_fasta(filepath):
     sequences = {}
@@ -103,7 +102,7 @@ def main():
             try:
                 c_val = float(h.split('cov_')[1].split('_')[0])
                 covs.append(c_val)
-            except:
+            except (ValueError, IndexError):
                 pass
                 
     if covs:

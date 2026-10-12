@@ -116,7 +116,7 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
             min_coverage: config.min_coverage,
             min_contig_len: config.min_contig_len,
             bloom_bits: config.bloom_bits,
-            error_correct: config.error_correct && step == 0, // Error correct once at the beginning
+            error_correct: config.error_correct,
             is_meta: config.is_meta,
             is_plasmid: config.is_plasmid && is_last_step,
             is_rna: config.is_rna,
@@ -174,7 +174,7 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
         let rescue_k = config.kmers.last().copied().unwrap_or(31).min(32);
 
         let mut final_kmers: hashbrown::HashSet<u64> = hashbrown::HashSet::new();
-        for u in &result.contigs {
+        for u in result.contigs.iter().chain(result.plasmids.iter()) {
             if u.sequence.len() >= rescue_k {
                 for i in 0..=(u.sequence.len() - rescue_k) {
                     if let Some(km) =
@@ -210,6 +210,7 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
                 final_kmers.extend(u_kmers);
                 let mut rescued_u = prior_u;
                 rescued_u.id = result.contigs.len();
+                result.scaffolds.push(rescued_u.clone());
                 result.contigs.push(rescued_u);
                 rescued_count += 1;
             }
@@ -223,6 +224,12 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
                 .contigs
                 .sort_by_key(|u| std::cmp::Reverse(u.sequence.len()));
             for (idx, u) in result.contigs.iter_mut().enumerate() {
+                u.id = idx;
+            }
+            result
+                .scaffolds
+                .sort_by_key(|u| std::cmp::Reverse(u.sequence.len()));
+            for (idx, u) in result.scaffolds.iter_mut().enumerate() {
                 u.id = idx;
             }
             result.stats = crate::assemble::calculate_stats(&result.contigs);

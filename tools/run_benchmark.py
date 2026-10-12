@@ -8,7 +8,6 @@ extracts Peak RSS and Timing metrics, runs evaluation, and logs results.
 import sys
 import os
 import subprocess
-import re
 import json
 import time
 
@@ -56,8 +55,14 @@ def run_benchmarked_command(name, command_str, output_fasta, ref_fasta=None):
     
     time_metrics = {}
     if os.path.exists(time_log):
-        with open(time_log) as f:
-            time_metrics = parse_time_output(f.read())
+        try:
+            with open(time_log) as f:
+                time_metrics = parse_time_output(f.read())
+        finally:
+            try:
+                os.remove(time_log)
+            except OSError:
+                pass
     else:
         time_metrics["wall_time_s"] = round(t1 - t0, 3)
         

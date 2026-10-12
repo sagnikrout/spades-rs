@@ -9,7 +9,6 @@ Also runs QUAST if available.
 import sys
 import os
 import subprocess
-import json
 
 RRNA_OPERONS = {
     "rrnH": {"start": 223771, "end": 229295, "strand": "-"},
@@ -68,7 +67,6 @@ def audit_rrna_operons(contigs_file, ref_file):
             contig_kmers.setdefault(can, []).append((c_idx, i, is_rev))
 
     results = {}
-    all_intact = True
 
     print(f"  {'Operon':<8} {'Coordinates (bp)':<25} {'Strand':<8} {'Status':<15} {'Spanning Contig'}")
     print("-" * 65)
@@ -77,7 +75,6 @@ def audit_rrna_operons(contigs_file, ref_file):
         s = op_info["start"]
         e = op_info["end"]
         strand = op_info["strand"]
-        op_len = e - s
 
         # Sample 5' flank (1 kb before operon), internal, and 3' flank (1 kb after)
         flank5 = ref[max(0, s - 1000):s]
@@ -91,7 +88,7 @@ def audit_rrna_operons(contigs_file, ref_file):
                 sub = seq_chunk[i:i+k]
                 can = min(sub, rc(sub))
                 if can in contig_kmers:
-                    for (c_idx, c_pos, is_rev) in contig_kmers[can]:
+                    for (c_idx, _, _) in contig_kmers[can]:
                         hits[c_idx] = hits.get(c_idx, 0) + 1
             return hits
 

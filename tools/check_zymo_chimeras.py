@@ -1,6 +1,5 @@
-import csv
-import glob
 import os
+import sys
 
 species_list = [
     "Bacillus_subtilis", "Cryptococcus_neoformans", "Enterococcus_faecalis",
@@ -9,25 +8,11 @@ species_list = [
     "Staphylococcus_aureus"
 ]
 
-info_file = 'output/bench_zymo/quast_report/contigs_reports/contigs_report_contigs.mis_contigs.info'
-
-inter_species_chimeras = []
-intra_species_mis = []
-
-if os.path.exists(info_file):
-    current_contig = None
-    with open(info_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue
-            if line.startswith('contig_'):
-                current_contig = line.split()[0]
-            elif 'Extensive misassembly' in line or 'translocation' in line or 'relocation' in line or 'inversion' in line:
-                # check alignments for current_contig in all_alignments
-                pass
-
-# Let's inspect all_alignments_contigs.tsv to find contigs matching >1 species
+# Inspect all_alignments_contigs.tsv to find contigs matching >1 species
 tsv_file = 'output/bench_zymo/quast_report/contigs_reports/all_alignments_contigs.tsv'
+if not os.path.exists(tsv_file):
+    print(f"Error: QUAST alignment file not found at {tsv_file}")
+    sys.exit(1)
 contig_species = {}
 
 with open(tsv_file, 'r') as f:

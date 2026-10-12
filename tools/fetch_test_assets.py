@@ -11,10 +11,8 @@ Downloads or generates authentic, verified test datasets for:
 """
 
 import os
-import sys
 import gzip
 import random
-import urllib.request
 import shutil
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -178,8 +176,8 @@ def generate_interleaved_and_single_end():
     interleaved_path = os.path.join(MODALITIES_DIR, "interleaved_pe.fq.gz")
     single_path = os.path.join(MODALITIES_DIR, "single_end.fq.gz")
     
-    phix_r1 = os.path.join(ROOT_DIR, "data", "phix", "wgs_1.fq.gz")
-    phix_r2 = os.path.join(ROOT_DIR, "data", "phix", "wgs_2.fq.gz")
+    phix_r1 = os.path.join(ROOT_DIR, "data", "phix", "phix_std_1.fq.gz")
+    phix_r2 = os.path.join(ROOT_DIR, "data", "phix", "phix_std_2.fq.gz")
 
     if not os.path.exists(interleaved_path) and os.path.exists(phix_r1) and os.path.exists(phix_r2):
         print("  --> Generating interleaved paired-end dataset (--12)...")

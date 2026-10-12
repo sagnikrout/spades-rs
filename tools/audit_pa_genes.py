@@ -6,7 +6,6 @@ and ribosomal RNA operons against assembled contigs.
 """
 
 import sys
-import os
 
 def load_fasta(filepath):
     sequences = {}
@@ -51,13 +50,12 @@ def find_best_alignment(gene_seq, contigs, k=31):
     for c_id, c_seq in contigs.items():
         if len(c_seq) < k:
             continue
-        c_matches = 0
         rc_seq = revcomp(c_seq)
         
         # Count shared k-mers forward and reverse
         matched_positions = set()
         for strand_seq in [c_seq, rc_seq]:
-            for i in range(0, len(strand_seq) - k + 1): # step 3 for speed
+            for i in range(0, len(strand_seq) - k + 1):
                 km = strand_seq[i:i+k]
                 if km in gene_kmers:
                     for pos in gene_kmers[km]:
@@ -176,7 +174,7 @@ def main():
         if info['strand'] == '-':
             g_seq = revcomp(g_seq)
             
-        recov, c_id = find_best_alignment(g_seq, contigs, k=31)
+        recov, _ = find_best_alignment(g_seq, contigs, k=31)
         total_audited += 1
         
         status = "INTACT" if recov >= 0.99 else ("FRAGMENTED" if recov >= 0.50 else "ABSENT")

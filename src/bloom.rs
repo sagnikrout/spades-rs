@@ -24,7 +24,7 @@ pub struct TwoTierFilter {
 impl TwoTierFilter {
     /// Creates a two-tier filter with `capacity_bits` per tier (rounded up to 64-bit words).
     pub fn new(capacity_bits: usize) -> Self {
-        let num_words = capacity_bits.div_ceil(64);
+        let num_words = capacity_bits.div_ceil(64).max(1);
         let size_bits = num_words * 64;
 
         let mut seen = Vec::with_capacity(num_words);
@@ -55,16 +55,24 @@ impl TwoTierFilter {
         self.is_solid_kmer256(Kmer256(kmer as u128, 0))
     }
 
-    /// Folds a 256-bit k-mer into a 64-bit hash using MurmurHash3 finalizer mixing.
-    /// For `k <= 64`, `kmer.1` is 0 and only `kmer.0` contributes; for `k > 64`, both halves are mixed.
+    /// Folds a 256-bit k-mer into a 64-bit hash using non-linear MurmurHash3/SplitMix64 mixing
+    /// across all four 64-bit limbs so that tandem repeats and high-k limbs do not cancel out.
     #[inline(always)]
     fn hash_kmer256(kmer: Kmer256, seed: u64) -> u64 {
-        let x0 = (kmer.0 as u64) ^ ((kmer.0 >> 64) as u64);
-        let x1 = (kmer.1 as u64) ^ ((kmer.1 >> 64) as u64);
-        let mut x = x0 ^ x1 ^ seed;
-        x = x.wrapping_mul(0xff51afd7ed558ccd);
+        let w0 = kmer.0 as u64;
+        let w1 = (kmer.0 >> 64) as u64;
+        let w2 = kmer.1 as u64;
+        let w3 = (kmer.1 >> 64) as u64;
+
+        let mut x = w0 ^ seed;
+        x = (x ^ w1.rotate_left(21).wrapping_mul(0x9e3779b97f4a7c15))
+            .wrapping_mul(0xff51afd7ed558ccd);
         x ^= x >> 33;
-        x = x.wrapping_mul(0xc4ceb9fe1a85ec53);
+        x = (x ^ w2.rotate_left(43).wrapping_mul(0xbf58476d1ce4e5b9))
+            .wrapping_mul(0xc4ceb9fe1a85ec53);
+        x ^= x >> 33;
+        x = (x ^ w3.rotate_left(11).wrapping_mul(0x94d049bb133111eb))
+            .wrapping_mul(0xff51afd7ed558ccd);
         x ^= x >> 33;
         x
     }

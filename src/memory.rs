@@ -26,15 +26,15 @@ impl MemoryLimits {
         let (total, available) = detect_system_memory();
 
         let (budget, is_user) = match user_override_gb {
-            Some(gb) => {
+            Some(gb) if gb.is_finite() && gb > 0.0 => {
                 let bytes = (gb * 1024.0 * 1024.0 * 1024.0) as usize;
                 (bytes, true)
             }
-            None => {
+            _ => {
                 // Default: Available RAM - 20% (i.e. 80% of available memory)
                 let budget = (available as f64 * 0.80) as usize;
-                // Floor at 512 MB to ensure minimal working buffer
-                (budget.max(512 * 1024 * 1024), false)
+                // Floor at 512 MB (capped by available RAM) to ensure minimal working buffer
+                (budget.max(512 * 1024 * 1024).min(available), false)
             }
         };
 

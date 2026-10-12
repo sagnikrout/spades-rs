@@ -58,29 +58,6 @@ def build_contig_kmer_index(contigs, k=25):
         index[c_id] = km_set
     return index
 
-def find_best_alignment(target_seq, contig_index, k=25):
-    target_seq = target_seq.upper()
-    target_len = len(target_seq)
-    if target_len < k:
-        k = max(11, target_len // 2)
-    
-    target_kmers = [canonical_kmer(target_seq[i:i+k]) for i in range(target_len - k + 1)]
-    total_km = max(1, len(target_kmers))
-    
-    best_matches = 0
-    best_contig = None
-    
-    for c_id, km_set in contig_index.items():
-        matched = sum(1 for km in target_kmers if km in km_set)
-        cov = matched / total_km
-        if cov > best_matches:
-            best_matches = cov
-            best_contig = c_id
-            if cov >= 0.999:
-                break
-                
-    return best_matches, best_contig
-
 def main():
     if len(sys.argv) < 4:
         print("Usage: audit_plasmid_kpn.py <all_ref.fa> <contigs.fasta> <plasmids.fasta>")

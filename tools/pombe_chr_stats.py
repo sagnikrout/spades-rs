@@ -1,23 +1,32 @@
-import csv
+import os
+import sys
 from audit_pombe_loci import load_fasta
 
-ref = load_fasta('data/pombe/pombe_ref.fa')
-chr_lens = {k: len(v) for k, v in ref.items()}
+ref_file = sys.argv[1] if len(sys.argv) > 1 else 'data/pombe/pombe_ref.fa'
+tsv_file = sys.argv[2] if len(sys.argv) > 2 else 'output/bench_pombe/quast_report/contigs_reports/all_alignments_contigs.tsv'
 
+if not os.path.exists(ref_file):
+    print(f"Error: Reference file '{ref_file}' not found.")
+    sys.exit(1)
+
+ref = load_fasta(ref_file)
+chr_lens = {k: len(v) for k, v in ref.items()}
 covered_intervals = {k: [] for k in chr_lens}
 
-tsv_file = 'output/bench_pombe/quast_report/contigs_reports/all_alignments_contigs.tsv'
-with open(tsv_file, 'r') as f:
-    for line in f:
-        parts = line.strip().split('\t')
-        if len(parts) >= 6 and parts[0].isdigit() and parts[1].isdigit():
-            s = int(parts[0])
-            e = int(parts[1])
-            ref_name = parts[4]
-            if s > e:
-                s, e = e, s
-            if ref_name in covered_intervals:
-                covered_intervals[ref_name].append((s, e))
+if os.path.exists(tsv_file):
+    with open(tsv_file, 'r') as f:
+        for line in f:
+            parts = line.strip().split('\t')
+            if len(parts) >= 6 and parts[0].isdigit() and parts[1].isdigit():
+                s = int(parts[0])
+                e = int(parts[1])
+                ref_name = parts[4]
+                if s > e:
+                    s, e = e, s
+                if ref_name in covered_intervals:
+                    covered_intervals[ref_name].append((s, e))
+else:
+    print(f"Warning: Alignments file '{tsv_file}' not found. Reporting 0% coverage.")
 
 print("=" * 75)
 print(f"{'Chromosome':<25} | {'Ref Length':>14} | {'Aligned Bp':>14} | {'Coverage %':>10}")

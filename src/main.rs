@@ -525,13 +525,26 @@ fn main() -> anyhow::Result<()> {
                     )
                 } else {
                     if let Some(parent) = output.parent() {
-                        let _ = std::fs::create_dir_all(parent);
+                        if !parent.as_os_str().is_empty() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
                     }
+                    let file_name = output.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                    let scaf_name = if file_name == "scaffolds.fasta" {
+                        "scaffolds_linked.fasta"
+                    } else {
+                        "scaffolds.fasta"
+                    };
+                    let plas_name = if file_name == "plasmids.fasta" {
+                        "plasmids_extracted.fasta"
+                    } else {
+                        "plasmids.fasta"
+                    };
                     (
                         output.clone(),
-                        output.with_file_name("scaffolds.fasta"),
+                        output.with_file_name(scaf_name),
                         output.with_extension("gfa"),
-                        output.with_file_name("plasmids.fasta"),
+                        output.with_file_name(plas_name),
                     )
                 };
 

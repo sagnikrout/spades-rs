@@ -1,4 +1,12 @@
-with open('data/pombe/pombe_annotations.gff') as f:
+import os
+import sys
+
+gff_path = sys.argv[1] if len(sys.argv) > 1 else 'data/pombe/pombe_annotations.gff'
+if not os.path.exists(gff_path):
+    print(f"Error: Annotations file '{gff_path}' not found.")
+    sys.exit(1)
+
+with open(gff_path) as f:
     for line in f:
         if line.startswith('#'): continue
         parts = line.strip().split('\t')

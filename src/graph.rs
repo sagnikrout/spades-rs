@@ -67,28 +67,35 @@ impl CompactedGraph {
         solid_kmers: &HashSet<Kmer256>,
         kmer_cov: &HashMap<Kmer256, u32>,
     ) -> Self {
+        if k == 0 || solid_kmers.is_empty() {
+            return Self {
+                k,
+                unitigs: Vec::new(),
+            };
+        }
+
         // Helper closures for getting successors and predecessors
-        let get_successors = |ok: OrientedKmer| -> Vec<(OrientedKmer, u8)> {
+        let get_successors = |ok: OrientedKmer| -> Vec<OrientedKmer> {
             let s = ok.explicit_seq(k);
             let mut succs = Vec::with_capacity(4);
             for b in 0..4u8 {
                 let next_val = s.extend_right(b, k);
                 let (can, is_rc) = next_val.canonical(k);
                 if solid_kmers.contains(&can) {
-                    succs.push((OrientedKmer { kmer: can, is_rc }, b));
+                    succs.push(OrientedKmer { kmer: can, is_rc });
                 }
             }
             succs
         };
 
-        let get_predecessors = |ok: OrientedKmer| -> Vec<(OrientedKmer, u8)> {
+        let get_predecessors = |ok: OrientedKmer| -> Vec<OrientedKmer> {
             let s = ok.explicit_seq(k);
             let mut preds = Vec::with_capacity(4);
             for a in 0..4u8 {
                 let prev_val = s.prepend_left(a, k);
                 let (can, is_rc) = prev_val.canonical(k);
                 if solid_kmers.contains(&can) {
-                    preds.push((OrientedKmer { kmer: can, is_rc }, a));
+                    preds.push(OrientedKmer { kmer: can, is_rc });
                 }
             }
             preds
@@ -108,7 +115,7 @@ impl CompactedGraph {
                         break; // Branch point or dead end
                     }
 
-                    let (next_ok, _) = succs[0];
+                    let next_ok = succs[0];
                     if visited.contains(&next_ok.kmer) {
                         break; // Cycle or visited
                     }
@@ -132,7 +139,7 @@ impl CompactedGraph {
                     if preds.len() != 1 {
                         break;
                     }
-                    let (prev_ok, _) = preds[0];
+                    let prev_ok = preds[0];
                     if visited.contains(&prev_ok.kmer) {
                         break;
                     }
@@ -185,14 +192,16 @@ impl CompactedGraph {
             let preds_rev = get_predecessors(start_ok.twin());
 
             if preds_fwd.len() == 1 {
-                let (pred_node, _) = preds_fwd[0];
+                let pred_node = preds_fwd[0];
                 let succs_of_pred = get_successors(pred_node);
                 if succs_of_pred.len() == 1 && !visited.contains(&pred_node.kmer) {
                     if preds_rev.len() == 1 {
-                        let (pred_rev_node, _) = preds_rev[0];
+                        let pred_rev_node = preds_rev[0];
                         let succs_of_rev_pred = get_successors(pred_rev_node);
                         if succs_of_rev_pred.len() == 1 && !visited.contains(&pred_rev_node.kmer) {
                             continue; // Interior node of an unvisited path; defer to boundary or Pass 2
+                        } else {
+                            start_ok = start_ok.twin();
                         }
                     } else {
                         start_ok = start_ok.twin();

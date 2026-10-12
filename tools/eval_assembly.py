@@ -47,7 +47,7 @@ def compute_n50(lengths, total_length=None):
     return lengths[-1], len(lengths)
 
 def evaluate_assembly(contigs_file, ref_file=None, min_len=200):
-    names, contigs = parse_fasta(contigs_file)
+    _, contigs = parse_fasta(contigs_file)
     # Filter by min_len
     filtered_contigs = [c for c in contigs if len(c) >= min_len]
     lengths = [len(c) for c in filtered_contigs]
@@ -86,6 +86,8 @@ def evaluate_assembly(contigs_file, ref_file=None, min_len=200):
         ref_kmers = set()
         for i in range(ref_len - k + 1):
             sub = full_ref[i:i+k]
+            if "N" in sub:
+                continue
             ref_kmers.add(min(sub, revcomp(sub)))
             
         covered_kmers = set()

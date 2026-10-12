@@ -90,20 +90,6 @@ impl Simplifier {
         final_contigs
     }
 
-    /// Reverses and complements a nucleotide byte slice.
-    fn revcomp_slice(seq: &[u8]) -> Vec<u8> {
-        seq.iter()
-            .rev()
-            .map(|&b| match b {
-                b'A' | b'a' => b'T',
-                b'C' | b'c' => b'G',
-                b'G' | b'g' => b'C',
-                b'T' | b't' => b'A',
-                _ => b'N',
-            })
-            .collect()
-    }
-
     /// Filters dead-end tips and sequencing artifacts with length-awareness.
     /// Structural tip clipping uses `2 * k` (while `self.min_length` is enforced at final output).
     pub fn clip_tips(&self, unitigs: Vec<Unitig>, dynamic_tip_threshold: f64) -> Vec<Unitig> {
@@ -114,13 +100,11 @@ impl Simplifier {
                 // If a dead-end branch is longer than or equal to 2*k base pairs,
                 // do not prune it based on low coverage alone.
                 // True sequencing errors virtually never generate an unbroken, unbranched error chain of 2*k bases.
-                // Keep the low-coverage and noise cutoff strictly for short tips (< 2*k).
+                // Keep the low-coverage cutoff strictly for short tips (< 2*k).
                 if u.sequence.len() >= tip_max_len {
                     true
                 } else {
-                    let is_tip = u.mean_coverage < dynamic_tip_threshold;
-                    let is_noise = u.mean_coverage < (self.min_coverage * 0.5);
-                    !is_tip && !is_noise
+                    u.mean_coverage >= dynamic_tip_threshold
                 }
             })
             .collect()
@@ -128,7 +112,7 @@ impl Simplifier {
 
     /// Identifies and removes parallel bubble paths (bulges) between common junctions.
     pub fn pop_bubbles(&self, unitigs: Vec<Unitig>) -> Vec<Unitig> {
-        let k1 = self.k - 1;
+        let k1 = self.k.saturating_sub(1);
         if k1 == 0 || unitigs.len() <= 1 {
             return unitigs;
         }
@@ -143,8 +127,8 @@ impl Simplifier {
             }
             let p = u.sequence[..k1].to_vec();
             let q = u.sequence[u.sequence.len() - k1..].to_vec();
-            let rc_p = Self::revcomp_slice(&p);
-            let rc_q = Self::revcomp_slice(&q);
+            let rc_p = crate::dna::revcomp_bytes(&p);
+            let rc_q = crate::dna::revcomp_bytes(&q);
 
             let key_fwd = (p, q);
             let key_rev = (rc_q, rc_p);
@@ -215,7 +199,7 @@ impl Simplifier {
 
     /// Stitches adjacent unitigs whose ends share exact (k-1)-mer overlaps with in-degree == 1 and out-degree == 1.
     pub fn stitch_unitigs(&self, mut unitigs: Vec<Unitig>) -> Vec<Unitig> {
-        let k1 = self.k - 1;
+        let k1 = self.k.saturating_sub(1);
         if k1 == 0 || unitigs.len() <= 1 {
             return unitigs;
         }
@@ -242,8 +226,8 @@ impl Simplifier {
                 let seq = &u_i.sequence;
                 let prefix = seq[..k1].to_vec();
                 let suffix = seq[seq.len() - k1..].to_vec();
-                let rc_prefix = Self::revcomp_slice(&prefix);
-                let rc_suffix = Self::revcomp_slice(&suffix);
+                let rc_prefix = crate::dna::revcomp_bytes(&prefix);
+                let rc_suffix = crate::dna::revcomp_bytes(&suffix);
 
                 // Forward orientations
                 prefix_map.entry(prefix).or_default().push((i, false));
@@ -274,21 +258,14 @@ impl Simplifier {
                     let out_kmer = if !is_rc_i {
                         u_i.sequence[u_i.sequence.len() - k1..].to_vec()
                     } else {
-                        Self::revcomp_slice(&u_i.sequence[..k1])
+                        crate::dna::revcomp_bytes(&u_i.sequence[..k1])
                     };
 
                     if let Some(matches) = prefix_map.get(&out_kmer) {
-                        let valid_matches: Vec<_> =
-                            matches.iter().filter(|&&(j, _)| i != j).collect();
-                        let mut unique_targets: Vec<(usize, bool)> = Vec::new();
-                        for &&(j, is_rc_j) in &valid_matches {
-                            if !unique_targets.iter().any(|&(uj, _)| uj == j) {
-                                unique_targets.push((j, is_rc_j));
-                            }
-                        }
-
-                        if unique_targets.len() == 1 {
-                            let (j, is_rc_j) = unique_targets[0];
+                        let other_matches: Vec<(usize, bool)> =
+                            matches.iter().copied().filter(|m| m.0 != i).collect();
+                        if other_matches.len() == 1 {
+                            let (j, is_rc_j) = other_matches[0];
                             if used_as_source.contains(&j) || used_as_target.contains(&j) {
                                 continue;
                             }
@@ -297,22 +274,15 @@ impl Simplifier {
                             let j_prefix = if !is_rc_j {
                                 unitigs[j].sequence[..k1].to_vec()
                             } else {
-                                Self::revcomp_slice(
+                                crate::dna::revcomp_bytes(
                                     &unitigs[j].sequence[unitigs[j].sequence.len() - k1..],
                                 )
                             };
 
                             if let Some(in_matches) = suffix_map.get(&j_prefix) {
-                                let valid_in: Vec<_> =
-                                    in_matches.iter().filter(|&&(src, _)| src != j).collect();
-                                let mut unique_in: Vec<usize> = Vec::new();
-                                for &&(src, _) in &valid_in {
-                                    if !unique_in.contains(&src) {
-                                        unique_in.push(src);
-                                    }
-                                }
-
-                                if unique_in.len() == 1 && unique_in[0] == i {
+                                let other_in_matches: Vec<(usize, bool)> =
+                                    in_matches.iter().copied().filter(|m| m.0 != j).collect();
+                                if other_in_matches.len() == 1 && other_in_matches[0].0 == i {
                                     merge_pairs.push((i, is_rc_i, j, is_rc_j));
                                     used_as_source.insert(i);
                                     used_as_target.insert(j);
@@ -333,10 +303,10 @@ impl Simplifier {
                 hashbrown::HashSet::with_capacity(merge_pairs.len());
             for (i, is_rc_i, j, is_rc_j) in merge_pairs {
                 if is_rc_i {
-                    unitigs[i].sequence = Self::revcomp_slice(&unitigs[i].sequence);
+                    unitigs[i].sequence = crate::dna::revcomp_bytes(&unitigs[i].sequence);
                 }
                 if is_rc_j {
-                    unitigs[j].sequence = Self::revcomp_slice(&unitigs[j].sequence);
+                    unitigs[j].sequence = crate::dna::revcomp_bytes(&unitigs[j].sequence);
                 }
 
                 let seq_j = unitigs[j].sequence[k1..].to_vec();
@@ -345,13 +315,12 @@ impl Simplifier {
                 let cov_i = unitigs[i].mean_coverage;
                 let cov_j = unitigs[j].mean_coverage;
 
-                let merged_len = len_i + seq_j.len();
                 let merged_kmers = unitigs[i].kmers_count + unitigs[j].kmers_count;
                 unitigs[i].mean_coverage = if merged_kmers > 0 {
                     (cov_i * unitigs[i].kmers_count as f64 + cov_j * unitigs[j].kmers_count as f64)
                         / merged_kmers as f64
-                } else if merged_len > 0 {
-                    (cov_i * len_i as f64 + cov_j * len_j as f64) / merged_len as f64
+                } else if len_i + len_j > 0 {
+                    (cov_i * len_i as f64 + cov_j * len_j as f64) / (len_i + len_j) as f64
                 } else {
                     0.0
                 };

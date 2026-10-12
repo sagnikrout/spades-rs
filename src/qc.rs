@@ -28,7 +28,7 @@ pub const ADAPTER_NEXTERA: &[u8] = b"CTGTCTCTTATACACATCT";
 /// A single FASTQ record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FastqRecord {
-    /// FASTQ record identifier line (without the leading `@` or trailing newline).
+    /// FASTQ record identifier line (including the leading `@`, without the trailing newline).
     pub id: Vec<u8>,
     /// Unpacked ASCII nucleotide sequence (`A`, `C`, `G`, `T`, `N`).
     pub seq: Vec<u8>,

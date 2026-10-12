@@ -30,8 +30,8 @@ impl ExSPAnder {
         unitigs: Vec<Unitig>,
         paired_info: &PairedInfoIndex,
     ) -> Vec<Unitig> {
-        let k1 = k - 1;
-        if unitigs.len() <= 1 {
+        let k1 = k.saturating_sub(1);
+        if k1 == 0 || unitigs.len() <= 1 {
             return unitigs;
         }
 
@@ -229,16 +229,16 @@ impl ExSPAnder {
             let mut total_len = unitigs[path[0].0].sequence.len();
 
             for &(node, is_rc) in &path[1..] {
-                let node_seq = if !is_rc {
-                    unitigs[node].sequence.clone()
-                } else {
-                    crate::dna::revcomp_bytes(&unitigs[node].sequence)
-                };
-
-                if node_seq.len() > k1 {
-                    seq.extend_from_slice(&node_seq[k1..]);
-                    total_cov += unitigs[node].mean_coverage * (node_seq.len() - k1) as f64;
-                    total_len += node_seq.len() - k1;
+                let node_len = unitigs[node].sequence.len();
+                if node_len > k1 {
+                    if !is_rc {
+                        seq.extend_from_slice(&unitigs[node].sequence[k1..]);
+                    } else {
+                        let rc_seq = crate::dna::revcomp_bytes(&unitigs[node].sequence);
+                        seq.extend_from_slice(&rc_seq[k1..]);
+                    }
+                    total_cov += unitigs[node].mean_coverage * (node_len - k1) as f64;
+                    total_len += node_len - k1;
                 }
             }
 

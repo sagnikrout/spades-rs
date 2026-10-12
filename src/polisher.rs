@@ -15,7 +15,7 @@ pub struct Polisher {
     pub k: usize,
     /// Minimum read coverage depth at a contig position required to consider a consensus base substitution.
     pub min_coverage_support: u32,
-    /// Enables stricter diploid-aware consensus voting (`--careful`) with multi-seed verification.
+    /// Enables stricter diploid-aware consensus voting (`--careful`) with higher coverage and dominance thresholds.
     pub careful: bool,
 }
 
@@ -33,7 +33,7 @@ impl Polisher {
     fn build_kmer_index(k: usize, contigs: &[Unitig]) -> HashMap<Kmer256, (u32, u32, bool)> {
         let total_kmers: usize = contigs
             .iter()
-            .map(|c| c.sequence.len().saturating_sub(k - 1))
+            .map(|c| c.sequence.len().saturating_sub(k.saturating_sub(1)))
             .sum();
         let mut kmer_pos: HashMap<Kmer256, (u32, u32, bool)> = HashMap::with_capacity(total_kmers);
         let mut seen_repeats: hashbrown::HashSet<Kmer256> = hashbrown::HashSet::new();
@@ -152,6 +152,9 @@ impl Polisher {
             let len = contig.sequence.len();
             #[allow(clippy::needless_range_loop)]
             for pos in 0..len {
+                if matches!(contig.sequence[pos], b'N' | b'n') {
+                    continue;
+                }
                 let counts = &tallies[c_idx][pos];
                 let c0 = counts[0].load(Ordering::Relaxed);
                 let c1 = counts[1].load(Ordering::Relaxed);
@@ -172,7 +175,7 @@ impl Polisher {
 
                     if (max_c as f64 / total as f64) >= dominance_ratio {
                         let consensus_base = crate::dna::bit2_to_base(max_code as u8);
-                        if contig.sequence[pos] != consensus_base {
+                        if contig.sequence[pos].to_ascii_uppercase() != consensus_base {
                             contig.sequence[pos] = consensus_base;
                             total_corrections += 1;
                         }
@@ -187,7 +190,7 @@ impl Polisher {
     /// Polishes contigs by consensus base-calling.
     pub fn polish_contigs(&self, contigs: Vec<Unitig>, reads: &[Vec<u8>]) -> (Vec<Unitig>, usize) {
         let k = self.k;
-        if contigs.is_empty() || reads.is_empty() {
+        if k == 0 || k > 128 || contigs.is_empty() || reads.is_empty() {
             return (contigs, 0);
         }
 
@@ -210,7 +213,11 @@ impl Polisher {
         packed: &crate::packed_reads::PackedReads,
     ) -> (Vec<Unitig>, usize) {
         let k = self.k;
-        if contigs.is_empty() || (packed.is_empty() && packed.ambiguous_sidecar.is_empty()) {
+        if k == 0
+            || k > 128
+            || contigs.is_empty()
+            || (packed.is_empty() && packed.ambiguous_sidecar.is_empty())
+        {
             return (contigs, 0);
         }
 
@@ -233,9 +240,11 @@ impl Polisher {
 
         // Sidecar pass: ambiguous reads with N positions vote with their clean flanking bases.
         // N bases return None from base_to_2bit and contribute zero to the tally.
-        for raw_read in &packed.ambiguous_sidecar {
-            Self::align_read_to_tallies(raw_read, k, &kmer_pos, &tallies);
-        }
+        packed.ambiguous_sidecar.par_chunks(4096).for_each(|chunk| {
+            for raw_read in chunk {
+                Self::align_read_to_tallies(raw_read, k, &kmer_pos, &tallies);
+            }
+        });
 
         self.apply_consensus(contigs, &tallies)
     }

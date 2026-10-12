@@ -7,7 +7,6 @@ across 14 nuclear chromosomes against assembled contigs/scaffolds.
 """
 
 import sys
-import os
 
 def load_fasta(filepath):
     sequences = {}
@@ -153,7 +152,7 @@ def main():
     intact_count = 0
     total_audited = 0
     
-    for gname, locus_tag in targets.items():
+    for gname in targets:
         if gname not in annot_genes:
             continue
         info = annot_genes[gname]
@@ -164,7 +163,7 @@ def main():
         if info['strand'] == '-':
             g_seq = revcomp(g_seq)
             
-        recov, c_id = find_best_alignment(g_seq, contigs, k=25)
+        recov, _ = find_best_alignment(g_seq, contigs, k=25)
         total_audited += 1
         
         status = "INTACT" if recov >= 0.99 else ("FRAGMENTED" if recov >= 0.50 else "ABSENT")
