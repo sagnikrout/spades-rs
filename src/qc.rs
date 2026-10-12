@@ -656,9 +656,8 @@ pub fn process_paired_reads(
         || out1_path == r2_path
         || out2_path == r1_path
         || out2_path == r2_path
-        || unpaired_out_path.is_some_and(|u| {
-            u == out1_path || u == out2_path || u == r1_path || u == r2_path
-        })
+        || unpaired_out_path
+            .is_some_and(|u| u == out1_path || u == out2_path || u == r1_path || u == r2_path)
     {
         anyhow::bail!("QC output paths must be distinct from each other and from input paths");
     }

@@ -146,7 +146,9 @@ pub fn run_assembly_with_packed_reads(
             if buf.len() < k {
                 continue;
             }
-            if config.error_correct && corrector.correct_read_in_place(&mut buf, &mut scratch, &filter) {
+            if config.error_correct
+                && corrector.correct_read_in_place(&mut buf, &mut scratch, &filter)
+            {
                 corrected_reads_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             for i in 0..=(buf.len() - k) {

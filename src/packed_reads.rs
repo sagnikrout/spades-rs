@@ -146,7 +146,9 @@ impl FastxReader {
                 self.line_buf.clear();
                 if self.reader.read_until(b'\n', &mut self.line_buf)? == 0 {
                     self.eof = true;
-                    anyhow::bail!("Malformed FASTQ record: unexpected EOF waiting for sequence line");
+                    anyhow::bail!(
+                        "Malformed FASTQ record: unexpected EOF waiting for sequence line"
+                    );
                 }
                 while self.line_buf.ends_with(b"\n") || self.line_buf.ends_with(b"\r") {
                     self.line_buf.pop();
@@ -157,7 +159,9 @@ impl FastxReader {
                 self.line_buf.clear();
                 if self.reader.read_until(b'\n', &mut self.line_buf)? == 0 {
                     self.eof = true;
-                    anyhow::bail!("Malformed FASTQ record: unexpected EOF waiting for '+' separator");
+                    anyhow::bail!(
+                        "Malformed FASTQ record: unexpected EOF waiting for '+' separator"
+                    );
                 }
                 if !self.line_buf.starts_with(b"+") {
                     anyhow::bail!(
@@ -170,7 +174,9 @@ impl FastxReader {
                 self.line_buf.clear();
                 if self.reader.read_until(b'\n', &mut self.line_buf)? == 0 {
                     self.eof = true;
-                    anyhow::bail!("Malformed FASTQ record: unexpected EOF waiting for quality scores");
+                    anyhow::bail!(
+                        "Malformed FASTQ record: unexpected EOF waiting for quality scores"
+                    );
                 }
                 while self.line_buf.ends_with(b"\n") || self.line_buf.ends_with(b"\r") {
                     self.line_buf.pop();
@@ -390,7 +396,13 @@ impl PackedReads {
             let mut reader = FastxReader::open(path)?;
             while reader.next_seq(&mut seq1)? {
                 if reader.next_seq(&mut seq2)? {
-                    partition_pair_streaming(&seq1, &seq2, &mut b1_store, &mut b2_store, &mut b3_store);
+                    partition_pair_streaming(
+                        &seq1,
+                        &seq2,
+                        &mut b1_store,
+                        &mut b2_store,
+                        &mut b3_store,
+                    );
                 } else {
                     b3_store.ingest_read(&seq1);
                     break;

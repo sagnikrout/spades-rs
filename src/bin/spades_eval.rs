@@ -74,7 +74,10 @@ fn main() -> anyhow::Result<()> {
             .output
             .unwrap_or_else(|| PathBuf::from("polished_contigs.fasta"));
         if out_contigs == cli.contigs {
-            anyhow::bail!("Output path {:?} cannot be identical to input contigs path to prevent data loss", out_contigs);
+            anyhow::bail!(
+                "Output path {:?} cannot be identical to input contigs path to prevent data loss",
+                out_contigs
+            );
         }
 
         println!("Running Stage 5 standalone consensus base polishing...");

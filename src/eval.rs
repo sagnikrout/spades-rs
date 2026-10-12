@@ -365,7 +365,6 @@ pub fn evaluate_assembly(
         metrics.reference_length = Some(ref_len);
 
         if ref_len >= k && !lengths.is_empty() {
-
             let mut covered_ref_kmers = HashSet::new();
             let mut total_matching_contig_kmers = 0usize;
 

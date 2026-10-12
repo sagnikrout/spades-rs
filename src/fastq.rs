@@ -355,18 +355,24 @@ pub fn parse_linked_reads_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<Linke
 
         seq.clear();
         if buf_reader.read_until(b'\n', &mut seq)? == 0 {
-            anyhow::bail!("Malformed FASTQ record in linked reads: unexpected EOF waiting for sequence");
+            anyhow::bail!(
+                "Malformed FASTQ record in linked reads: unexpected EOF waiting for sequence"
+            );
         }
         sep.clear();
         if buf_reader.read_until(b'\n', &mut sep)? == 0 {
-            anyhow::bail!("Malformed FASTQ record in linked reads: unexpected EOF waiting for '+' separator");
+            anyhow::bail!(
+                "Malformed FASTQ record in linked reads: unexpected EOF waiting for '+' separator"
+            );
         }
         if !sep.starts_with(b"+") {
             anyhow::bail!("Malformed FASTQ record in linked reads: expected '+' separator");
         }
         qual.clear();
         if buf_reader.read_until(b'\n', &mut qual)? == 0 {
-            anyhow::bail!("Malformed FASTQ record in linked reads: unexpected EOF waiting for quality scores");
+            anyhow::bail!(
+                "Malformed FASTQ record in linked reads: unexpected EOF waiting for quality scores"
+            );
         }
 
         while seq.ends_with(b"\n") || seq.ends_with(b"\r") {

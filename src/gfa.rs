@@ -42,7 +42,10 @@ pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P
     for u in unitigs {
         if u.sequence.len() >= k1 {
             // Forward prefix: entering target with '+'
-            prefix_map.entry(u.sequence[..k1].to_vec()).or_default().push((u.id, '+'));
+            prefix_map
+                .entry(u.sequence[..k1].to_vec())
+                .or_default()
+                .push((u.id, '+'));
             // Reverse-complement prefix (i.e. RC of suffix): entering target with '-'
             let rc_prefix = crate::dna::revcomp_bytes(&u.sequence[u.sequence.len() - k1..]);
             prefix_map.entry(rc_prefix).or_default().push((u.id, '-'));
@@ -57,7 +60,11 @@ pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P
         let suffix_fwd = &u_i.sequence[u_i.sequence.len() - k1..];
         if let Some(targets) = prefix_map.get(suffix_fwd) {
             for &(target_id, target_strand) in targets {
-                writeln!(writer, "L\t{}\t+\t{}\t{}\t{}M", u_i.id, target_id, target_strand, k1)?;
+                writeln!(
+                    writer,
+                    "L\t{}\t+\t{}\t{}\t{}M",
+                    u_i.id, target_id, target_strand, k1
+                )?;
             }
         }
 
@@ -67,7 +74,11 @@ pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P
             for &(target_id, target_strand) in targets {
                 // To avoid duplicate mirror links, only emit if target_id != u_i.id or target_strand == '+'
                 if target_id != u_i.id || target_strand == '+' {
-                    writeln!(writer, "L\t{}\t-\t{}\t{}\t{}M", u_i.id, target_id, target_strand, k1)?;
+                    writeln!(
+                        writer,
+                        "L\t{}\t-\t{}\t{}\t{}M",
+                        u_i.id, target_id, target_strand, k1
+                    )?;
                 }
             }
         }

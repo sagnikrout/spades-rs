@@ -560,7 +560,10 @@ fn main() -> anyhow::Result<()> {
                     eval_metrics.print_summary();
                 }
                 Err(e) => {
-                    eprintln!("  [Notice] Assembly evaluation could not be completed: {}", e);
+                    eprintln!(
+                        "  [Notice] Assembly evaluation could not be completed: {}",
+                        e
+                    );
                 }
             }
         }
