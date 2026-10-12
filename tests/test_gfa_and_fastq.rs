@@ -1,3 +1,5 @@
+//! Integration tests for FASTQ/FASTA parsing, Phred quality auto-detection, barcode extraction, and GFA export.
+
 use spades_rs::fastq::parse_reads_from_file;
 use spades_rs::gfa::write_graph_gfa;
 use spades_rs::graph::Unitig;

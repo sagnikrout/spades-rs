@@ -595,9 +595,9 @@ impl PackedReads {
     /// Total allocated memory footprint of packed store in bytes.
     pub fn memory_usage_bytes(&self) -> usize {
         self.data.capacity()
-            + self.offsets.capacity() * std::mem::size_of::<usize>()
-            + self.lengths.capacity() * std::mem::size_of::<u32>()
-            + self.ambiguous_sidecar.capacity() * std::mem::size_of::<Vec<u8>>()
+            + self.offsets.capacity() * size_of::<usize>()
+            + self.lengths.capacity() * size_of::<u32>()
+            + self.ambiguous_sidecar.capacity() * size_of::<Vec<u8>>()
             + self
                 .ambiguous_sidecar
                 .iter()
@@ -729,19 +729,19 @@ mod tests {
     #[test]
     fn test_split_on_n_basic() {
         let segs: Vec<&[u8]> = split_on_n(b"ACGTNNNACGT").collect();
-        assert_eq!(segs, vec![b"ACGT" as &[u8], b"ACGT"]);
+        assert_eq!(segs, vec![&b"ACGT"[..], b"ACGT"]);
     }
 
     #[test]
     fn test_split_on_n_no_n() {
         let segs: Vec<&[u8]> = split_on_n(b"ACGTACGT").collect();
-        assert_eq!(segs, vec![b"ACGTACGT" as &[u8]]);
+        assert_eq!(segs, vec![&b"ACGTACGT"[..]]);
     }
 
     #[test]
     fn test_split_on_n_multiple() {
         let segs: Vec<&[u8]> = split_on_n(b"ACGTNACGTNACGT").collect();
-        assert_eq!(segs, vec![b"ACGT" as &[u8], b"ACGT", b"ACGT"]);
+        assert_eq!(segs, vec![&b"ACGT"[..], b"ACGT", b"ACGT"]);
     }
 
     #[test]

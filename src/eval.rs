@@ -211,7 +211,7 @@ impl AssemblyMetrics {
 }
 
 /// Reads all FASTA sequences from a file (plain or gzip).
-pub fn read_fasta_sequences<P: AsRef<Path>>(path: P) -> Result<Vec<(String, Vec<u8>)>> {
+pub fn read_fasta_sequences<P: AsRef<Path>>(path: P) -> Result<Vec<Vec<u8>>> {
     let path = path.as_ref();
     let file = File::open(path).with_context(|| format!("Failed to open file: {:?}", path))?;
     let is_gz = path.extension().is_some_and(|ext| ext == "gz");
@@ -224,23 +224,18 @@ pub fn read_fasta_sequences<P: AsRef<Path>>(path: P) -> Result<Vec<(String, Vec<
 
     let mut buf = BufReader::with_capacity(512 * 1024, reader);
     let mut entries = Vec::new();
-    let mut cur_header = String::new();
+    let mut in_record = false;
     let mut cur_seq = Vec::new();
 
     let mut line = String::with_capacity(1024);
     while buf.read_line(&mut line)? > 0 {
         let trimmed = line.trim_end();
-        if let Some(header) = trimmed.strip_prefix('>') {
-            if !cur_header.is_empty() {
-                entries.push((cur_header.clone(), cur_seq.clone()));
-                cur_seq.clear();
+        if trimmed.starts_with('>') {
+            if in_record {
+                entries.push(std::mem::take(&mut cur_seq));
             }
-            cur_header = header
-                .split_whitespace()
-                .next()
-                .unwrap_or(header)
-                .to_string();
-        } else if !cur_header.is_empty() {
+            in_record = true;
+        } else if in_record {
             for &b in trimmed.as_bytes() {
                 if b.is_ascii_alphabetic() {
                     cur_seq.push(b.to_ascii_uppercase());
@@ -250,8 +245,8 @@ pub fn read_fasta_sequences<P: AsRef<Path>>(path: P) -> Result<Vec<(String, Vec<
         line.clear();
     }
 
-    if !cur_header.is_empty() {
-        entries.push((cur_header, cur_seq));
+    if in_record {
+        entries.push(cur_seq);
     }
 
     Ok(entries)
@@ -289,7 +284,7 @@ pub fn evaluate_assembly(
     let mut bin_counts = [0usize; 5];
     let mut bin_totals = [0usize; 5];
 
-    for (_name, seq) in &contigs {
+    for seq in &contigs {
         let len = seq.len();
         if len < min_contig_len {
             continue;
@@ -372,7 +367,7 @@ pub fn evaluate_assembly(
         let mut ref_kmers = HashSet::new();
         let mut ref_len = 0usize;
 
-        for (_r_name, r_seq) in ref_entries {
+        for r_seq in ref_entries {
             ref_len += r_seq.len();
             if r_seq.len() >= k {
                 for i in 0..=(r_seq.len() - k) {
@@ -389,7 +384,7 @@ pub fn evaluate_assembly(
             let mut covered_ref_kmers = HashSet::new();
             let mut total_matching_contig_kmers = 0usize;
 
-            for (_c_name, c_seq) in &contigs {
+            for c_seq in &contigs {
                 if c_seq.len() < min_contig_len || c_seq.len() < k {
                     continue;
                 }
@@ -461,7 +456,7 @@ pub fn polish_assembly_file(
     let unitigs: Vec<Unitig> = fasta_entries
         .into_iter()
         .enumerate()
-        .map(|(id, (_name, seq))| {
+        .map(|(id, seq)| {
             let seq_len = seq.len();
             Unitig {
                 id,

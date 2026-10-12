@@ -1,3 +1,5 @@
+//! Integration tests for ExSPAnder paired-end repeat resolution, SPAligner long-read bridging, and SpLitteR linked reads.
+
 use hashbrown::HashMap;
 use spades_rs::expander::ExSPAnder;
 use spades_rs::graph::Unitig;

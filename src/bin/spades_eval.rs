@@ -1,3 +1,5 @@
+//! Standalone CLI binary (`spades-eval`) for QUAST-style assembly evaluation and consensus polishing.
+
 use clap::Parser;
 use spades_rs::eval::{evaluate_assembly, polish_assembly_file};
 use std::path::PathBuf;

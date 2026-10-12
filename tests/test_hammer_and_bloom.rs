@@ -1,3 +1,5 @@
+//! Integration tests for the two-tier atomic Bloom filter, 2-bit Hamming distance, and BayesHammer error correction.
+
 use spades_rs::bloom::TwoTierFilter;
 use spades_rs::dna::{base_to_2bit, canonical_kmer_u64, string_to_kmer};
 use spades_rs::hammer::{hamming_distance_2bit, ErrorCorrector};

@@ -1,3 +1,5 @@
+//! End-to-end integration tests for the complete de novo assembly pipeline.
+
 use spades_rs::assemble::{run_assembly, AssemblerConfig};
 use spades_rs::dna::{canonical_kmer_u64, revcomp_kmer_u64, string_to_kmer};
 use spades_rs::hammer::hamming_distance_2bit;

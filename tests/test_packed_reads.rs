@@ -1,3 +1,5 @@
+//! Integration tests for the 2-bit packed read store, paired-end block synchronization, and `N`-base handling.
+
 use spades_rs::packed_reads::PackedReads;
 
 #[test]
@@ -42,7 +44,7 @@ fn test_packed_reads_synthetic_workload() {
 
     // Generate 2,000 reads with varied lengths (50 to 250 bp)
     let mut rng_state = 0x12345678u64;
-    for _i in 0..2000 {
+    for _ in 0..2000 {
         rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1);
         let len = 50 + (rng_state % 200) as usize;
 

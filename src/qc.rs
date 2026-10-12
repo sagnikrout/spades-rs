@@ -642,7 +642,7 @@ pub fn process_paired_reads(
     cfg: &QcConfig,
 ) -> Result<QcReport> {
     let (mut reads1, enc1) = read_fastq_records(r1_path)?;
-    let (mut reads2, _enc2) = read_fastq_records(r2_path)?;
+    let (mut reads2, enc2) = read_fastq_records(r2_path)?;
 
     if reads1.len() != reads2.len() {
         anyhow::bail!(
@@ -652,11 +652,22 @@ pub fn process_paired_reads(
         );
     }
 
-    let encoding = cfg.phred_override.unwrap_or(enc1);
-    let offset = encoding.offset();
+    let encoding1 = cfg.phred_override.unwrap_or(enc1);
+    let encoding2 = cfg.phred_override.unwrap_or(enc2);
+    let offset1 = encoding1.offset();
+    let offset2 = encoding2.offset();
+
+    let detected_phred = if encoding1 == encoding2 {
+        format!("{:?} (offset {})", encoding1, offset1)
+    } else {
+        format!(
+            "R1: {:?} (offset {}), R2: {:?} (offset {})",
+            encoding1, offset1, encoding2, offset2
+        )
+    };
 
     let mut report = QcReport {
-        detected_phred: format!("{:?} (offset {})", encoding, offset),
+        detected_phred,
         ..Default::default()
     };
 
@@ -669,7 +680,7 @@ pub fn process_paired_reads(
             &mut report.raw_q30_bases,
             &mut report.raw_gc_bases,
             rec,
-            offset,
+            offset1,
         );
     }
     for rec in &reads2 {
@@ -680,7 +691,7 @@ pub fn process_paired_reads(
             &mut report.raw_q30_bases,
             &mut report.raw_gc_bases,
             rec,
-            offset,
+            offset2,
         );
     }
 
@@ -728,16 +739,16 @@ pub fn process_paired_reads(
         }
 
         // 4. Sliding-window quality trimming
-        if sliding_window_trim(rec1, cfg.window_size, cfg.min_quality, offset) {
+        if sliding_window_trim(rec1, cfg.window_size, cfg.min_quality, offset1) {
             report.quality_trimmed_reads += 1;
         }
-        if sliding_window_trim(rec2, cfg.window_size, cfg.min_quality, offset) {
+        if sliding_window_trim(rec2, cfg.window_size, cfg.min_quality, offset2) {
             report.quality_trimmed_reads += 1;
         }
 
         // 5. Check filters
-        let res1 = passes_filter(rec1, cfg, offset);
-        let res2 = passes_filter(rec2, cfg, offset);
+        let res1 = passes_filter(rec1, cfg, offset1);
+        let res2 = passes_filter(rec2, cfg, offset2);
 
         match (res1, res2) {
             (Ok(()), Ok(())) => {
@@ -750,7 +761,7 @@ pub fn process_paired_reads(
                     &mut report.clean_q30_bases,
                     &mut report.clean_gc_bases,
                     rec1,
-                    offset,
+                    offset1,
                 );
                 accumulate_stats(
                     &mut report.clean_reads,
@@ -759,7 +770,7 @@ pub fn process_paired_reads(
                     &mut report.clean_q30_bases,
                     &mut report.clean_gc_bases,
                     rec2,
-                    offset,
+                    offset2,
                 );
             }
             (Ok(()), Err(reason2)) => {
@@ -773,7 +784,7 @@ pub fn process_paired_reads(
                         &mut report.clean_q30_bases,
                         &mut report.clean_gc_bases,
                         rec1,
-                        offset,
+                        offset1,
                     );
                 } else {
                     report.dropped_too_short += 1; // R1 dropped because mate failed
@@ -790,7 +801,7 @@ pub fn process_paired_reads(
                         &mut report.clean_q30_bases,
                         &mut report.clean_gc_bases,
                         rec2,
-                        offset,
+                        offset2,
                     );
                 } else {
                     report.dropped_too_short += 1; // R2 dropped because mate failed
@@ -910,7 +921,6 @@ fn accumulate_stats(
 #[inline]
 fn record_drop(report: &mut QcReport, reason: &str) {
     match reason {
-        "too_short" => report.dropped_too_short += 1,
         "too_many_ns" => report.dropped_too_many_ns += 1,
         "low_quality" => report.dropped_low_quality += 1,
         _ => report.dropped_too_short += 1,

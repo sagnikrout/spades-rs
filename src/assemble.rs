@@ -237,7 +237,7 @@ pub fn run_assembly_with_packed_reads(
     let mut all_priors: Vec<Vec<u8>> = config.prior_contigs.clone().unwrap_or_default();
     if let Some(ref trusted) = config.trusted_contigs {
         for tp in trusted {
-            match crate::fastq::parse_reads_from_file(tp) {
+            match parse_reads_from_file(tp) {
                 Ok(seqs) => {
                     println!(
                         "  [Trusted Contigs] Loaded {} high-confidence backbone priors from {:?}",

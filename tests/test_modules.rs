@@ -1,3 +1,5 @@
+//! Integration tests for specialized assembly modes (plasmid, metagenomic, RNA, single-cell), scaffolding, and polishing.
+
 use hashbrown::HashMap;
 use spades_rs::graph::Unitig;
 use spades_rs::modes::{apply_meta_filter, PlasmidDetector, RnaEngine, SingleCellNormalizer};

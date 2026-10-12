@@ -236,7 +236,7 @@ impl Scaffolder {
 
             // Greedily find best forward link
             while let Some((next_idx, support)) =
-                self.find_best_forward_link(curr, n, &visited, paired_info)
+                Self::find_best_forward_link(curr, &visited, paired_info)
             {
                 if support < self.min_links {
                     break;
@@ -281,9 +281,7 @@ impl Scaffolder {
     }
 
     fn find_best_forward_link(
-        &self,
         curr: usize,
-        _n: usize,
         visited: &[bool],
         paired_info: &PairedInfoIndex,
     ) -> Option<(usize, u32)> {

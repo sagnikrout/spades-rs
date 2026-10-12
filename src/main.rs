@@ -1,3 +1,5 @@
+//! Primary CLI entry point for `spades-rs` (`assemble`, `qc`, `eval`, `polish`, and `benchmark`).
+
 use clap::{Parser, Subcommand};
 use spades_rs::assemble::{run_assembly, write_contigs_fasta, AssemblerConfig};
 use spades_rs::multik::{run_multik_assembly, MultiKConfig};

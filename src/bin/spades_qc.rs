@@ -1,3 +1,5 @@
+//! Standalone CLI binary (`spades-qc`) for FASTQ quality control, adapter trimming, and read filtering.
+
 use clap::Parser;
 use spades_rs::fastq::PhredEncoding;
 use spades_rs::qc::{process_paired_reads, process_single_reads, QcConfig};

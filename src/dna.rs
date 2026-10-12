@@ -385,7 +385,7 @@ mod tests {
         assert_eq!(seq127_str.len(), 127, "template must be exactly 127 chars");
         let km127 = Kmer256::from_bytes(seq127_str.as_bytes(), 127).expect("encoding failed k=127");
         let rc127 = km127.revcomp(127);
-        let expected_rc127 = crate::dna::revcomp_bytes(seq127_str.as_bytes());
+        let expected_rc127 = revcomp_bytes(seq127_str.as_bytes());
         assert_eq!(
             rc127.to_string(127),
             std::str::from_utf8(&expected_rc127).unwrap(),

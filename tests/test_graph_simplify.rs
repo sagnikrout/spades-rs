@@ -1,3 +1,5 @@
+//! Integration tests for de Bruijn graph tip clipping, bubble popping, and linear unitig stitching.
+
 use spades_rs::graph::Unitig;
 use spades_rs::simplify::Simplifier;
 

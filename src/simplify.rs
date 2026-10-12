@@ -156,7 +156,7 @@ impl Simplifier {
 
         let mut to_remove = hashbrown::HashSet::new();
 
-        for (_endpoints, members) in bubble_groups {
+        for members in bubble_groups.into_values() {
             if members.len() <= 1 {
                 continue;
             }
