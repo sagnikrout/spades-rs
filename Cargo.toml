@@ -1,6 +1,6 @@
 [package]
 name = "spades-rs"
-version = "1.0.0"
+version = "1.1.0-alpha.1"
 edition = "2021"
 authors = ["Sagnik Rout <sagnikrout@users.noreply.github.com>", "Gemini 3.8 Flash (Google DeepMind)"]
 description = "A Rust-based de novo genome assembler designed for low-memory environments"
