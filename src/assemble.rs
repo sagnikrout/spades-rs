@@ -248,7 +248,7 @@ pub fn run_assembly_with_packed_reads(
     );
 
     println!("─── [Stage 6] ExSPAnder Repeat Resolution (Paired-End Linkages) ───");
-    let contigs = if !config.skip_repeat_resolution && packed.pe_boundary > 0 {
+    let contigs = if !config.skip_repeat_resolution && packed.is_paired() {
         let paired_info =
             crate::paired_info::PairedInfoIndex::build_from_packed(k, &simplified_contigs, packed);
         println!(
@@ -330,7 +330,7 @@ pub fn run_assembly_with_packed_reads(
     };
 
     println!("─── [Stage 7] Scaffolding Across Unresolved Gaps ───");
-    let scaffolds = if !config.skip_repeat_resolution && packed.pe_boundary > 0 {
+    let scaffolds = if !config.skip_repeat_resolution && packed.is_paired() {
         let paired_info =
             crate::paired_info::PairedInfoIndex::build_from_packed(k, &contigs, packed);
         crate::scaffold::Scaffolder::default().build_scaffolds(&contigs, &paired_info)

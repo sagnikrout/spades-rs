@@ -166,9 +166,9 @@ impl PairedInfoIndex {
             None
         };
 
-        let n1 = packed.pe_boundary;
-        let n2 = packed.len().saturating_sub(n1);
-        let num_pairs = n1.min(n2);
+        let n_pairs = packed.pe_count();
+        let remaining = packed.len().saturating_sub(n_pairs);
+        let num_pairs = n_pairs.min(remaining);
         let pair_indices: Vec<usize> = (0..num_pairs).collect();
 
         #[allow(clippy::type_complexity)]
@@ -180,9 +180,11 @@ impl PairedInfoIndex {
                 let mut local_dists = Vec::new();
                 let mut local_links: HashMap<(usize, usize), u32> = HashMap::new();
 
-                for &i in chunk {
-                    packed.get_read(i, &mut buf1);
-                    packed.get_read(n1 + i, &mut buf2);
+                for &p in chunk {
+                    let r1_idx = p;
+                    let r2_idx = p + packed.pe_count();
+                    packed.get_read(r1_idx, &mut buf1);
+                    packed.get_read(r2_idx, &mut buf2);
                     let loc1 = map_read(&buf1);
                     let loc2 = map_read(&buf2);
 

@@ -252,3 +252,65 @@ fn test_sidecar_memory_included_in_usage_bytes() {
         "Sidecar memory must be counted in memory_usage_bytes()"
     );
 }
+
+#[test]
+fn test_three_block_paired_synchronization_and_trimming() {
+    // Pair 0: Clean R1 (24 bp) & Clean R2 (24 bp) -> Block 1 & Block 2
+    let p0_r1 = b"ACGTACGTACGTACGTACGTACGT".to_vec();
+    let p0_r2 = b"TGCATGCATGCATGCATGCATGCA".to_vec();
+
+    // Pair 1: Terminal N on R1 ("NN" + 24 bp + "NN") & Clean R2 (24 bp)
+    // Terminal trimming strips ends before internal-N check -> stays paired in Block 1 & Block 2!
+    let p1_r1 = b"NNAAACCCGGGTTTAAACCCGGGTTTNN".to_vec();
+    let p1_r2 = b"TTTGGGCCCAAATTTGGGCCCAAA".to_vec();
+
+    // Pair 2: Internal N on R1 (22 bp + "NNN" + 22 bp -> 2 sub-reads) & Clean R2 (24 bp)
+    // Demoted to Block 3 so subsequent pairs never drift!
+    let p2_r1 = b"ACGTACGTACGTACGTACGTACNNNGTGCATGCATGCATGCATGCAT".to_vec();
+    let p2_r2 = b"CCCCCCCCCCCCCCCCCCCCCCCC".to_vec();
+
+    // Pair 3: Clean R1 (24 bp) & Clean R2 (24 bp) -> Block 1 & Block 2
+    let p3_r1 = b"GGGGGGGGGGGGGGGGGGGGGGGG".to_vec();
+    let p3_r2 = b"AAAAAAAAAAAAAAAAAAAAAAAA".to_vec();
+
+    let r1_list = vec![p0_r1.clone(), p1_r1, p2_r1, p3_r1.clone()];
+    let r2_list = vec![p0_r2.clone(), p1_r2.clone(), p2_r2, p3_r2.clone()];
+
+    let store = PackedReads::from_paired_slices(&r1_list, &r2_list);
+
+    // 3 intact pairs (Pair 0, Pair 1 after terminal trim, Pair 3)
+    assert_eq!(store.pe_count(), 3);
+    assert!(store.is_paired());
+    // Total reads = 3*2 (Blocks 1 & 2) + 3 (Block 3: 2 sub-reads from p2_r1 + 1 from p2_r2) = 9
+    assert_eq!(store.len(), 9);
+
+    let mut b1 = Vec::new();
+    let mut b2 = Vec::new();
+
+    store.get_pair(0, &mut b1, &mut b2);
+    assert_eq!(b1, p0_r1);
+    assert_eq!(b2, p0_r2);
+
+    store.get_pair(1, &mut b1, &mut b2);
+    assert_eq!(b1, b"AAACCCGGGTTTAAACCCGGGTTT");
+    assert_eq!(b2, p1_r2);
+
+    store.get_pair(2, &mut b1, &mut b2);
+    assert_eq!(b1, p3_r1);
+    assert_eq!(b2, p3_r2);
+
+    // Verify interleaved parity
+    let interleaved = vec![
+        r1_list[0].clone(),
+        r2_list[0].clone(),
+        r1_list[1].clone(),
+        r2_list[1].clone(),
+        r1_list[2].clone(),
+        r2_list[2].clone(),
+        r1_list[3].clone(),
+        r2_list[3].clone(),
+    ];
+    let interleaved_store = PackedReads::from_interleaved_slices(&interleaved);
+    assert_eq!(interleaved_store.pe_count(), store.pe_count());
+    assert_eq!(interleaved_store.len(), store.len());
+}
