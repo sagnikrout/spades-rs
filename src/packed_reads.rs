@@ -146,7 +146,7 @@ impl FastxReader {
                 self.line_buf.clear();
                 if self.reader.read_until(b'\n', &mut self.line_buf)? == 0 {
                     self.eof = true;
-                    return Ok(false);
+                    anyhow::bail!("Malformed FASTQ record: unexpected EOF waiting for sequence line");
                 }
                 while self.line_buf.ends_with(b"\n") || self.line_buf.ends_with(b"\r") {
                     self.line_buf.pop();
@@ -157,7 +157,7 @@ impl FastxReader {
                 self.line_buf.clear();
                 if self.reader.read_until(b'\n', &mut self.line_buf)? == 0 {
                     self.eof = true;
-                    return Ok(!seq_out.is_empty());
+                    anyhow::bail!("Malformed FASTQ record: unexpected EOF waiting for '+' separator");
                 }
                 if !self.line_buf.starts_with(b"+") {
                     anyhow::bail!(
@@ -170,7 +170,7 @@ impl FastxReader {
                 self.line_buf.clear();
                 if self.reader.read_until(b'\n', &mut self.line_buf)? == 0 {
                     self.eof = true;
-                    return Ok(!seq_out.is_empty());
+                    anyhow::bail!("Malformed FASTQ record: unexpected EOF waiting for quality scores");
                 }
                 while self.line_buf.ends_with(b"\n") || self.line_buf.ends_with(b"\r") {
                     self.line_buf.pop();
@@ -183,9 +183,7 @@ impl FastxReader {
                     );
                 }
 
-                if !seq_out.is_empty() {
-                    return Ok(true);
-                }
+                return Ok(true);
             }
         } else {
             // FASTA (single-line or multi-line wrapped)
@@ -379,6 +377,30 @@ impl PackedReads {
         Ok(Self::finalize_three_blocks(b1_store, b2_store, b3_store))
     }
 
+    /// Synchronously ingests multiple interleaved paired-end files into the Three-Block layout.
+    pub fn from_interleaved_files<P: AsRef<Path>>(paths: &[P]) -> Result<Self> {
+        let mut b1_store = Self::with_capacity(65_536, 65_536 * 150);
+        let mut b2_store = Self::with_capacity(65_536, 65_536 * 150);
+        let mut b3_store = Self::default();
+
+        let mut seq1 = Vec::with_capacity(512);
+        let mut seq2 = Vec::with_capacity(512);
+
+        for path in paths {
+            let mut reader = FastxReader::open(path)?;
+            while reader.next_seq(&mut seq1)? {
+                if reader.next_seq(&mut seq2)? {
+                    partition_pair_streaming(&seq1, &seq2, &mut b1_store, &mut b2_store, &mut b3_store);
+                } else {
+                    b3_store.ingest_read(&seq1);
+                    break;
+                }
+            }
+        }
+
+        Ok(Self::finalize_three_blocks(b1_store, b2_store, b3_store))
+    }
+
     /// Constructs a Three-Block `PackedReads` store from in-memory paired read slices.
     pub fn from_paired_slices(r1_reads: &[Vec<u8>], r2_reads: &[Vec<u8>]) -> Self {
         let mut b1_store = Self::with_capacity(r1_reads.len(), r1_reads.len() * 150);
@@ -559,13 +581,14 @@ impl PackedReads {
 
     /// Total allocated memory footprint of packed store in bytes.
     pub fn memory_usage_bytes(&self) -> usize {
-        self.data.len()
-            + self.offsets.len() * std::mem::size_of::<usize>()
-            + self.lengths.len() * std::mem::size_of::<u32>()
+        self.data.capacity()
+            + self.offsets.capacity() * std::mem::size_of::<usize>()
+            + self.lengths.capacity() * std::mem::size_of::<u32>()
+            + self.ambiguous_sidecar.capacity() * std::mem::size_of::<Vec<u8>>()
             + self
                 .ambiguous_sidecar
                 .iter()
-                .map(|v| v.len())
+                .map(|v| v.capacity())
                 .sum::<usize>()
     }
 }

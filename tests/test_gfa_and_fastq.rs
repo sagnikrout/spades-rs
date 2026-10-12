@@ -34,11 +34,11 @@ fn test_gfa_export_format() {
     let lines: Vec<&str> = content.lines().collect();
 
     // Line 1: Header
-    assert_eq!(lines[0], "H\tVN:Z:1.0");
+    assert_eq!(lines[0], "H\tVN:Z:1.1");
 
     // S lines: Segments
-    assert!(lines.contains(&"S\t0\tGGCTACGT\tLN:i:8\tRC:f:15.5"));
-    assert!(lines.contains(&"S\t1\tACGTCCTA\tLN:i:8\tRC:f:25.0"));
+    assert!(lines.contains(&"S\t0\tGGCTACGT\tLN:i:8\tcv:f:15.5\tRC:f:15.5"));
+    assert!(lines.contains(&"S\t1\tACGTCCTA\tLN:i:8\tcv:f:25.0\tRC:f:25.0"));
 
     // L lines: Overlap of k-1 = 4 bases (ACGT)
     assert!(lines.contains(&"L\t0\t+\t1\t+\t4M"));

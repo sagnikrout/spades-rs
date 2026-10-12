@@ -292,8 +292,12 @@ pub fn trim_poly_n(record: &mut FastqRecord) {
     }
     if start > 0 || end < record.seq.len() {
         record.seq = record.seq[start..end].to_vec();
-        if record.qual.len() >= end {
-            record.qual = record.qual[start..end].to_vec();
+        let q_start = start.min(record.qual.len());
+        let q_end = end.min(record.qual.len());
+        if q_start < q_end {
+            record.qual = record.qual[q_start..q_end].to_vec();
+        } else {
+            record.qual.clear();
         }
     }
 }
@@ -326,7 +330,7 @@ pub fn trim_poly_g(record: &mut FastqRecord, min_g_len: usize) -> bool {
 /// Trims adapter sequences from the 3' end of the read.
 /// Returns true if an adapter was detected and trimmed.
 pub fn trim_adapters(record: &mut FastqRecord, adapters: &[Vec<u8>], min_overlap: usize) -> bool {
-    if record.seq.len() < min_overlap || adapters.is_empty() {
+    if min_overlap == 0 || record.seq.len() < min_overlap || adapters.is_empty() {
         return false;
     }
 
@@ -368,12 +372,12 @@ pub fn trim_adapters(record: &mut FastqRecord, adapters: &[Vec<u8>], min_overlap
             }
         }
 
-        // 2. Full adapter embedded in read (read length > insert + ad_len)
-        if r_len > ad_len {
+        // 2. Full adapter embedded in read (read length >= ad_len)
+        if r_len >= ad_len {
             let max_full_start = r_len - ad_len;
             let max_allowed = (ad_len / 10).max(1);
 
-            for start in (0..max_full_start).rev() {
+            for start in 0..=max_full_start {
                 let mut mismatches = 0;
                 for (i, &ab_byte) in adapter.iter().take(ad_len).enumerate() {
                     let rb = record.seq[start + i].to_ascii_uppercase();
@@ -398,14 +402,15 @@ pub fn trim_adapters(record: &mut FastqRecord, adapters: &[Vec<u8>], min_overlap
     }
 
     if let Some(pos) = best_trim_pos {
-        record.seq.truncate(pos);
-        if record.qual.len() >= pos {
-            record.qual.truncate(pos);
+        if pos < r_len {
+            record.seq.truncate(pos);
+            if record.qual.len() >= pos {
+                record.qual.truncate(pos);
+            }
+            return true;
         }
-        true
-    } else {
-        false
     }
+    false
 }
 
 /// Performs sliding-window quality trimming from the 3' end toward the 5' end.
@@ -646,6 +651,18 @@ pub fn process_paired_reads(
         );
     }
 
+    if out1_path == out2_path
+        || out1_path == r1_path
+        || out1_path == r2_path
+        || out2_path == r1_path
+        || out2_path == r2_path
+        || unpaired_out_path.is_some_and(|u| {
+            u == out1_path || u == out2_path || u == r1_path || u == r2_path
+        })
+    {
+        anyhow::bail!("QC output paths must be distinct from each other and from input paths");
+    }
+
     let mut out1 = open_fastq_writer(out1_path)?;
     let mut out2 = open_fastq_writer(out2_path)?;
     let mut out_unpaired = match unpaired_out_path {
@@ -754,6 +771,12 @@ pub fn process_paired_reads(
         }
     }
 
+    out1.flush()?;
+    out2.flush()?;
+    if let Some(ref mut u_writer) = out_unpaired {
+        u_writer.flush()?;
+    }
+
     Ok(report)
 }
 
@@ -763,6 +786,9 @@ pub fn process_single_reads(
     output_path: &Path,
     cfg: &QcConfig,
 ) -> Result<QcReport> {
+    if input_path == output_path {
+        anyhow::bail!("QC output path must be distinct from input path");
+    }
     let (mut reads, enc) = read_fastq_records(input_path)?;
     let encoding = cfg.phred_override.unwrap_or(enc);
     let offset = encoding.offset();
@@ -817,6 +843,7 @@ pub fn process_single_reads(
         }
     }
 
+    writer.flush()?;
     Ok(report)
 }
 

@@ -13,30 +13,39 @@ use std::path::Path;
 pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P) -> Result<()> {
     let file = File::create(out_path)?;
     let mut writer = std::io::BufWriter::with_capacity(1024 * 1024, file);
+    if k < 2 {
+        anyhow::bail!("k must be at least 2 for GFA link generation, got {}", k);
+    }
     let k1 = k - 1;
 
     // 1. Header
-    writeln!(writer, "H\tVN:Z:1.0")?;
+    writeln!(writer, "H\tVN:Z:1.1")?;
 
-    // 2. Segment lines: S <id> <seq> LN:i:<len> RC:f:<coverage>
+    // 2. Segment lines: S <id> <seq> LN:i:<len> cv:f:<coverage> RC:f:<coverage>
     for u in unitigs {
         let seq_str = String::from_utf8_lossy(&u.sequence);
         writeln!(
             writer,
-            "S\t{}\t{}\tLN:i:{}\tRC:f:{:.1}",
+            "S\t{}\t{}\tLN:i:{}\tcv:f:{:.1}\tRC:f:{:.1}",
             u.id,
             seq_str,
             u.sequence.len(),
+            u.mean_coverage,
             u.mean_coverage
         )?;
     }
 
-    // 3. Link lines: L <from> + <to> + <k-1>M
-    // Index prefixes of length k1
-    let mut prefix_map: hashbrown::HashMap<&[u8], Vec<usize>> = hashbrown::HashMap::new();
+    // 3. Link lines: L <from> <strand> <to> <strand> <k-1>M
+    // Index forward and reverse-complement prefixes of length k1
+    // (prefix_seq, target_id, is_target_rc)
+    let mut prefix_map: hashbrown::HashMap<Vec<u8>, Vec<(usize, char)>> = hashbrown::HashMap::new();
     for u in unitigs {
         if u.sequence.len() >= k1 {
-            prefix_map.entry(&u.sequence[..k1]).or_default().push(u.id);
+            // Forward prefix: entering target with '+'
+            prefix_map.entry(u.sequence[..k1].to_vec()).or_default().push((u.id, '+'));
+            // Reverse-complement prefix (i.e. RC of suffix): entering target with '-'
+            let rc_prefix = crate::dna::revcomp_bytes(&u.sequence[u.sequence.len() - k1..]);
+            prefix_map.entry(rc_prefix).or_default().push((u.id, '-'));
         }
     }
 
@@ -44,11 +53,21 @@ pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P
         if u_i.sequence.len() < k1 {
             continue;
         }
-        let suffix_i = &u_i.sequence[u_i.sequence.len() - k1..];
-        if let Some(target_ids) = prefix_map.get(suffix_i) {
-            for &target_id in target_ids {
-                if target_id != u_i.id {
-                    writeln!(writer, "L\t{}\t+\t{}\t+\t{}M", u_i.id, target_id, k1)?;
+        // Outgoing from forward 3' end ('+')
+        let suffix_fwd = &u_i.sequence[u_i.sequence.len() - k1..];
+        if let Some(targets) = prefix_map.get(suffix_fwd) {
+            for &(target_id, target_strand) in targets {
+                writeln!(writer, "L\t{}\t+\t{}\t{}\t{}M", u_i.id, target_id, target_strand, k1)?;
+            }
+        }
+
+        // Outgoing from reverse-complement 3' end ('-') = RC of forward prefix
+        let suffix_rev = crate::dna::revcomp_bytes(&u_i.sequence[..k1]);
+        if let Some(targets) = prefix_map.get(&suffix_rev) {
+            for &(target_id, target_strand) in targets {
+                // To avoid duplicate mirror links, only emit if target_id != u_i.id or target_strand == '+'
+                if target_id != u_i.id || target_strand == '+' {
+                    writeln!(writer, "L\t{}\t-\t{}\t{}\t{}M", u_i.id, target_id, target_strand, k1)?;
                 }
             }
         }

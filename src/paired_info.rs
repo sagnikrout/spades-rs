@@ -27,8 +27,14 @@ pub struct PairedInfoIndex {
 
 impl PairedInfoIndex {
     fn build_kmer_index(k: usize, unitigs: &[Unitig]) -> HashMap<Kmer256, (usize, usize)> {
+        let total_kmers: usize = unitigs
+            .iter()
+            .map(|u| u.sequence.len().saturating_sub(k - 1))
+            .sum();
         let mut kmer_to_unitig: HashMap<Kmer256, (usize, usize)> =
-            HashMap::with_capacity(unitigs.len() * 100);
+            HashMap::with_capacity(total_kmers);
+        let mut seen_repeats: hashbrown::HashSet<Kmer256> = hashbrown::HashSet::new();
+
         for (u_id, u) in unitigs.iter().enumerate() {
             if u.sequence.len() < k {
                 continue;
@@ -36,7 +42,15 @@ impl PairedInfoIndex {
             for i in 0..=(u.sequence.len() - k) {
                 if let Some(km) = Kmer256::from_bytes(&u.sequence[i..i + k], k) {
                     let (can, _) = km.canonical(k);
-                    kmer_to_unitig.entry(can).or_insert((u_id, i));
+                    if seen_repeats.contains(&can) {
+                        continue;
+                    }
+                    if kmer_to_unitig.contains_key(&can) {
+                        kmer_to_unitig.remove(&can);
+                        seen_repeats.insert(can);
+                    } else {
+                        kmer_to_unitig.insert(can, (u_id, i));
+                    }
                 }
             }
         }
@@ -86,7 +100,7 @@ impl PairedInfoIndex {
                 let offset_diff = (pos1 as f64 - pos2 as f64).abs();
                 if offset_diff > 0.0 {
                     let insert_span = offset_diff + read2_len as f64;
-                    if insert_span < 100_000.0 {
+                    if insert_span <= 2_000.0 {
                         local_dists.push(insert_span);
                     }
                 }

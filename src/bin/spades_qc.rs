@@ -63,11 +63,11 @@ struct Cli {
     adapters: Option<Vec<String>>,
 
     /// Force Phred+64 encoding format
-    #[arg(long)]
+    #[arg(long, conflicts_with = "phred33")]
     phred64: bool,
 
     /// Force Phred+33 encoding format
-    #[arg(long)]
+    #[arg(long, conflicts_with = "phred64")]
     phred33: bool,
 
     /// Number of worker threads (defaults to system logical threads)

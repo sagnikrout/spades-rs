@@ -121,12 +121,17 @@ pub fn run_assembly_with_packed_reads(
         start_time.elapsed().as_secs_f64()
     );
 
+    if config.error_correct {
+        println!("─── [Stage 2.5] BayesHammer Single-Base Solid K-mer Error Correction ───");
+    }
     println!("─── [Stage 3] Building Solid K-mer Index ───");
     let num_shards = (num_threads * 4).next_power_of_two().clamp(8, 64);
     let shard_mask = num_shards - 1;
     let shards: Vec<std::sync::Mutex<HashMap<Kmer256, u32>>> = (0..num_shards)
         .map(|_| std::sync::Mutex::new(HashMap::with_capacity(75_000)))
         .collect();
+    let corrected_reads_count = std::sync::atomic::AtomicUsize::new(0);
+    let corrector = crate::hammer::ErrorCorrector::new(k);
 
     (0..num_chunks).into_par_iter().for_each(|c_idx| {
         let start = c_idx * chunk_size;
@@ -134,11 +139,15 @@ pub fn run_assembly_with_packed_reads(
         let mut thread_buffers: Vec<Vec<Kmer256>> =
             (0..num_shards).map(|_| Vec::with_capacity(256)).collect();
         let mut buf = Vec::with_capacity(512);
+        let mut scratch = Vec::with_capacity(512);
 
         for idx in start..end {
             packed.get_read(idx, &mut buf);
             if buf.len() < k {
                 continue;
+            }
+            if config.error_correct && corrector.correct_read_in_place(&mut buf, &mut scratch, &filter) {
+                corrected_reads_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             for i in 0..=(buf.len() - k) {
                 if let Some(kmer) = Kmer256::from_bytes(&buf[i..i + k], k) {
@@ -168,6 +177,13 @@ pub fn run_assembly_with_packed_reads(
         }
     });
 
+    if config.error_correct {
+        println!(
+            "  [BayesHammer] Corrected single-nucleotide errors in {} reads",
+            corrected_reads_count.load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
+
     // Drop filter immediately
     drop(filter);
     crate::memory::trim_memory();
@@ -184,14 +200,36 @@ pub fn run_assembly_with_packed_reads(
         global_counts.extend(map.drain());
     }
 
-    // Inject prior contigs for progressive multi-k continuity
-    if let Some(ref priors) = config.prior_contigs {
+    // Inject trusted contigs and prior contigs for progressive multi-k continuity
+    let mut all_priors: Vec<Vec<u8>> = config.prior_contigs.clone().unwrap_or_default();
+    if let Some(ref trusted) = config.trusted_contigs {
+        for tp in trusted {
+            match crate::fastq::parse_reads_from_file(tp) {
+                Ok(seqs) => {
+                    println!(
+                        "  [Trusted Contigs] Loaded {} high-confidence backbone priors from {:?}",
+                        seqs.len(),
+                        tp
+                    );
+                    all_priors.extend(seqs);
+                }
+                Err(e) => {
+                    eprintln!(
+                        "  [Warning] Failed to parse trusted contigs from {:?}: {}",
+                        tp, e
+                    );
+                }
+            }
+        }
+    }
+
+    if !all_priors.is_empty() {
         println!(
             "  [Multi-K] Injecting {} prior unitigs as high-confidence backbone paths...",
-            priors.len()
+            all_priors.len()
         );
         let prior_boost = (config.min_coverage as u32 * 4).max(50);
-        for seq in priors {
+        for seq in &all_priors {
             if seq.len() < k {
                 continue;
             }
@@ -351,7 +389,7 @@ pub fn run_assembly_with_packed_reads(
         start_time.elapsed().as_secs_f64()
     );
 
-    let contigs = if config.polish && !config.skip_repeat_resolution {
+    let (contigs, scaffolds) = if config.polish && !config.skip_repeat_resolution {
         println!(
             "─── [Stage 8] Consensus Base Polishing{} ───",
             if config.careful {
@@ -362,18 +400,19 @@ pub fn run_assembly_with_packed_reads(
         );
         let polisher = crate::polisher::Polisher {
             k: 21,
-            min_coverage_support: if config.careful { 3 } else { 5 },
+            min_coverage_support: if config.careful { 8 } else { 5 },
             careful: config.careful,
         };
-        let (polished, fixes) = polisher.polish_contigs_packed(contigs, packed);
+        let (polished_c, fixes_c) = polisher.polish_contigs_packed(contigs, packed);
+        let (polished_s, fixes_s) = polisher.polish_contigs_packed(scaffolds, packed);
         println!(
-            "  Polished {} base discrepancies (Elapsed: {:.3}s)",
-            fixes,
+            "  Polished {} base discrepancies across contigs and scaffolds (Elapsed: {:.3}s)",
+            fixes_c + fixes_s,
             start_time.elapsed().as_secs_f64()
         );
-        polished
+        (polished_c, polished_s)
     } else {
-        contigs
+        (contigs, scaffolds)
     };
 
     let (contigs, plasmids) = if config.is_plasmid {
@@ -392,7 +431,7 @@ pub fn run_assembly_with_packed_reads(
         (contigs, Vec::new())
     };
 
-    let contigs = if config.is_meta {
+    let mut contigs = if config.is_meta {
         let meta_contigs = crate::modes::apply_meta_filter(contigs, config.min_contig_len);
         println!(
             "  [Meta Mode] Retained {} contigs across uneven coverage depths",
@@ -402,6 +441,23 @@ pub fn run_assembly_with_packed_reads(
     } else {
         contigs
     };
+
+    let mut scaffolds = if config.is_meta {
+        crate::modes::apply_meta_filter(scaffolds, config.min_contig_len)
+    } else {
+        scaffolds
+    };
+
+    let mut plasmids = plasmids;
+    for (idx, u) in contigs.iter_mut().enumerate() {
+        u.id = idx;
+    }
+    for (idx, u) in scaffolds.iter_mut().enumerate() {
+        u.id = idx;
+    }
+    for (idx, u) in plasmids.iter_mut().enumerate() {
+        u.id = idx;
+    }
 
     let stats = calculate_stats(&contigs);
     let elapsed = start_time.elapsed().as_secs_f64();
@@ -424,8 +480,8 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
         "─── [Stage 1] Ingesting and packing reads from {} input file(s) ───",
         input_files.len()
     );
-    let packed = if config.interleaved && input_files.len() == 1 {
-        crate::packed_reads::PackedReads::from_interleaved_file(&input_files[0])?
+    let packed = if config.interleaved {
+        crate::packed_reads::PackedReads::from_interleaved_files(input_files)?
     } else {
         crate::packed_reads::PackedReads::from_files(input_files)?
     };
@@ -435,29 +491,7 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
         packed.memory_usage_bytes() as f64 / 1_048_576.0
     );
 
-    let config_clone;
-    let effective_config = if let Some(ref trusted) = config.trusted_contigs {
-        let mut priors = config.prior_contigs.clone().unwrap_or_default();
-        for tp in trusted {
-            if let Ok(seqs) = crate::fastq::parse_reads_from_file(tp) {
-                println!(
-                    "  [Trusted Contigs] Loaded {} high-confidence backbone priors from {:?}",
-                    seqs.len(),
-                    tp
-                );
-                priors.extend(seqs);
-            }
-        }
-        config_clone = AssemblerConfig {
-            prior_contigs: Some(priors),
-            ..config.clone()
-        };
-        &config_clone
-    } else {
-        config
-    };
-
-    run_assembly_with_packed_reads(&packed, effective_config)
+    run_assembly_with_packed_reads(&packed, config)
 }
 
 /// Computes assembly QC metrics: N50, L50, Max length, total bases, GC%.
@@ -470,6 +504,9 @@ pub fn calculate_stats(contigs: &[crate::graph::Unitig]) -> AssemblyStats {
     lengths.sort_unstable_by(|a, b| b.cmp(a));
 
     let total_length: usize = lengths.iter().sum();
+    if total_length == 0 {
+        return AssemblyStats::default();
+    }
     let max_contig_length = lengths[0];
 
     let half_total = total_length / 2;
@@ -487,15 +524,23 @@ pub fn calculate_stats(contigs: &[crate::graph::Unitig]) -> AssemblyStats {
     }
 
     let mut gc_count = 0usize;
+    let mut atgc_count = 0usize;
     for c in contigs {
         for &b in &c.sequence {
-            if b == b'G' || b == b'g' || b == b'C' || b == b'c' {
-                gc_count += 1;
+            match b {
+                b'G' | b'g' | b'C' | b'c' => {
+                    gc_count += 1;
+                    atgc_count += 1;
+                }
+                b'A' | b'a' | b'T' | b't' => {
+                    atgc_count += 1;
+                }
+                _ => {}
             }
         }
     }
-    let gc_content = if total_length > 0 {
-        (gc_count as f64 / total_length as f64) * 100.0
+    let gc_content = if atgc_count > 0 {
+        (gc_count as f64 / atgc_count as f64) * 100.0
     } else {
         0.0
     };
@@ -525,10 +570,13 @@ pub fn write_contigs_fasta<P: AsRef<Path>>(
             c.sequence.len(),
             c.mean_coverage
         )?;
-        // Write 80 characters per line
-        for chunk in c.sequence.chunks(80) {
-            writer.write_all(chunk)?;
+        if c.sequence.is_empty() {
             writer.write_all(b"\n")?;
+        } else {
+            for chunk in c.sequence.chunks(80) {
+                writer.write_all(chunk)?;
+                writer.write_all(b"\n")?;
+            }
         }
     }
     writer.flush()?;

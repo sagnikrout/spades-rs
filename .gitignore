@@ -8,6 +8,7 @@ target/
 *.fastg
 *.paths
 output/
+test_out*/
 
 # Downloaded benchmark datasets (raw sequencing data)
 data/

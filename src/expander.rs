@@ -171,6 +171,15 @@ impl ExSPAnder {
             }
         }
 
+        // If a target node is entered in reverse-complement orientation (via rc(suffix(target))),
+        // its physical 3' suffix port is already consumed as an incoming port and cannot also
+        // serve as a forward outgoing suffix transition in resolved_adj[target].
+        for target in 0..n {
+            if resolved_adj.contains(&Some((target, true))) {
+                resolved_adj[target] = None;
+            }
+        }
+
         // Compute final in-degrees to identify true path sources
         let mut final_in_degree = vec![0usize; n];
         for &adj in &resolved_adj {
@@ -202,6 +211,11 @@ impl ExSPAnder {
                 }
                 visited[next_node] = true;
                 path.push((next_node, is_rc));
+                if is_rc {
+                    // resolved_adj only indexes outgoing transitions from the forward 3' suffix;
+                    // entering next_node in RC leaves the path at rc(prefix(next_node)).
+                    break;
+                }
                 curr = next_node;
             }
 
@@ -228,14 +242,21 @@ impl ExSPAnder {
             extended_contigs.push(Unitig {
                 id: new_id,
                 sequence: seq,
-                mean_coverage: total_cov / total_len as f64,
+                mean_coverage: if total_len > 0 {
+                    total_cov / total_len as f64
+                } else {
+                    unitigs[path[0].0].mean_coverage
+                },
                 kmers_count: total_len.saturating_sub(k1),
             });
             new_id += 1;
         }
 
-        // Sort descending by length
+        // Sort descending by length and synchronize IDs
         extended_contigs.sort_by_key(|a| std::cmp::Reverse(a.sequence.len()));
+        for (idx, u) in extended_contigs.iter_mut().enumerate() {
+            u.id = idx;
+        }
 
         extended_contigs
     }

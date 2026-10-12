@@ -39,7 +39,7 @@ impl PlasmidDetector {
 
         // Compute median coverage across all contigs
         let mut covs: Vec<f64> = unitigs.iter().map(|u| u.mean_coverage).collect();
-        covs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        covs.sort_by(|a, b| a.total_cmp(b));
         let median_cov = covs[covs.len() / 2].max(1.0);
 
         let mut chromosomal = Vec::new();

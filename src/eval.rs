@@ -69,6 +69,7 @@ impl AssemblyMetrics {
             })
             .collect();
 
+        let escape_json = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
         let ref_json = if let Some(ref_file) = &self.reference_file {
             format!(
                 ",\n  \"reference\": {{\n    \
@@ -78,7 +79,7 @@ impl AssemblyMetrics {
                    \"duplication_ratio\": {:.3},\n    \
                    \"mismatches_per_100kbp\": {:.2}\n  \
                  }}",
-                ref_file,
+                escape_json(ref_file),
                 self.reference_length.unwrap_or(0),
                 self.genome_fraction_pct.unwrap_or(0.0),
                 self.duplication_ratio.unwrap_or(1.0),
@@ -107,7 +108,7 @@ impl AssemblyMetrics {
               }},\n  \
               \"length_bins\": [\n{}\n  ]{}\n\
             }}",
-            self.contigs_file,
+            escape_json(&self.contigs_file),
             self.total_contigs,
             self.total_length,
             self.max_contig_length,
@@ -218,7 +219,7 @@ pub fn read_fasta_sequences<P: AsRef<Path>>(path: P) -> Result<Vec<(String, Vec<
                 .next()
                 .unwrap_or(header)
                 .to_string();
-        } else {
+        } else if !cur_header.is_empty() {
             for &b in trimmed.as_bytes() {
                 if b.is_ascii_alphabetic() {
                     cur_seq.push(b.to_ascii_uppercase());
@@ -346,28 +347,30 @@ pub fn evaluate_assembly(
     if let Some(ref_path) = reference_path {
         metrics.reference_file = Some(ref_path.to_string_lossy().to_string());
         let ref_entries = read_fasta_sequences(ref_path)?;
-        let mut full_ref = Vec::new();
-        for (_r_name, r_seq) in ref_entries {
-            full_ref.extend_from_slice(&r_seq);
-        }
-        let ref_len = full_ref.len();
-        metrics.reference_length = Some(ref_len);
+        let k = 31;
+        let mut ref_kmers = HashSet::new();
+        let mut ref_len = 0usize;
 
-        if ref_len >= 31 && !lengths.is_empty() {
-            let k = 31;
-            let mut ref_kmers = HashSet::new();
-            for i in 0..=(ref_len - k) {
-                if let Some(km) = string_to_kmer(&full_ref[i..i + k], k) {
-                    let (can, _) = canonical_kmer_u64(km, k);
-                    ref_kmers.insert(can);
+        for (_r_name, r_seq) in ref_entries {
+            ref_len += r_seq.len();
+            if r_seq.len() >= k {
+                for i in 0..=(r_seq.len() - k) {
+                    if let Some(km) = string_to_kmer(&r_seq[i..i + k], k) {
+                        let (can, _) = canonical_kmer_u64(km, k);
+                        ref_kmers.insert(can);
+                    }
                 }
             }
+        }
+        metrics.reference_length = Some(ref_len);
+
+        if ref_len >= k && !lengths.is_empty() {
 
             let mut covered_ref_kmers = HashSet::new();
             let mut total_matching_contig_kmers = 0usize;
 
             for (_c_name, c_seq) in &contigs {
-                if c_seq.len() < k {
+                if c_seq.len() < min_contig_len || c_seq.len() < k {
                     continue;
                 }
                 for i in 0..=(c_seq.len() - k) {
@@ -422,6 +425,18 @@ pub fn polish_assembly_file(
     min_cov: u32,
     careful: bool,
 ) -> Result<usize> {
+    if !(11..=127).contains(&k) {
+        anyhow::bail!(
+            "Polishing k-mer size must be between 11 and 127 (got k={})",
+            k
+        );
+    }
+    if contigs_in == contigs_out {
+        anyhow::bail!(
+            "Output path {:?} cannot be identical to input contigs path to prevent data loss",
+            contigs_out
+        );
+    }
     let fasta_entries = read_fasta_sequences(contigs_in)?;
     let unitigs: Vec<Unitig> = fasta_entries
         .into_iter()

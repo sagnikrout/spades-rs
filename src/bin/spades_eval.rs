@@ -2,6 +2,19 @@ use clap::Parser;
 use spades_rs::eval::{evaluate_assembly, polish_assembly_file};
 use std::path::PathBuf;
 
+fn validate_k(s: &str) -> Result<usize, String> {
+    let k: usize = s
+        .parse()
+        .map_err(|_| format!("`{}` isn't a valid integer", s))?;
+    if !(11..=127).contains(&k) {
+        return Err(format!("k-mer size must be between 11 and 127 (got {})", k));
+    }
+    if k.is_multiple_of(2) {
+        return Err(format!("k-mer size must be an odd integer (got {})", k));
+    }
+    Ok(k)
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "spades-eval")]
 #[command(about = "Stage 5: QUAST-equivalent Assembly Evaluation & Standalone Polishing")]
@@ -33,8 +46,8 @@ struct Cli {
     #[arg(short = 'o', long = "output", value_name = "FILE")]
     output: Option<PathBuf>,
 
-    /// K-mer size for polishing alignment anchors
-    #[arg(short = 'k', default_value_t = 21)]
+    /// K-mer size for polishing alignment anchors (odd integer between 15 and 127)
+    #[arg(short = 'k', default_value_t = 21, value_parser = validate_k)]
     k: usize,
 
     /// Minimum coverage threshold required to alter a consensus base
@@ -60,6 +73,9 @@ fn main() -> anyhow::Result<()> {
         let out_contigs = cli
             .output
             .unwrap_or_else(|| PathBuf::from("polished_contigs.fasta"));
+        if out_contigs == cli.contigs {
+            anyhow::bail!("Output path {:?} cannot be identical to input contigs path to prevent data loss", out_contigs);
+        }
 
         println!("Running Stage 5 standalone consensus base polishing...");
         let corrected = polish_assembly_file(

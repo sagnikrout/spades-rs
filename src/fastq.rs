@@ -94,7 +94,7 @@ pub fn extract_barcode_from_header(header: &[u8]) -> Option<u64> {
     }
     // Check delimiter format `@read_id#ACGT...`
     if let Some(pos) = header_str.find('#') {
-        let tail = &header_str[pos + 1..];
+        let tail = header_str[pos + 1..].trim();
         let bc_str = tail.split('/').next().unwrap_or(tail);
         return encode_barcode_str(bc_str);
     }
@@ -103,7 +103,17 @@ pub fn extract_barcode_from_header(header: &[u8]) -> Option<u64> {
 
 /// Encodes an ASCII barcode (up to 32 bp) into a 64-bit integer, or hashes it if longer.
 fn encode_barcode_str(bc_str: &str) -> Option<u64> {
-    let clean_str = bc_str.trim_end_matches("-1");
+    let clean_str = bc_str.trim();
+    // Strip trailing -1, -2, etc. multiplex suffix if present
+    let clean_str = if let Some(idx) = clean_str.rfind('-') {
+        if clean_str[idx + 1..].chars().all(|c| c.is_ascii_digit()) {
+            &clean_str[..idx]
+        } else {
+            clean_str
+        }
+    } else {
+        clean_str
+    };
     if clean_str.is_empty() {
         return None;
     }
@@ -158,11 +168,16 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
     let mut buf_reader = BufReader::with_capacity(512 * 1024, reader);
     let mut sequences = Vec::with_capacity(100_000);
 
-    // Peak at first byte to determine format: '@' for FASTQ, '>' for FASTA
+    // Peek at first non-whitespace byte to determine format: '@' for FASTQ, '>' for FASTA
     let mut first_byte = [0u8; 1];
-    let n = buf_reader.read(&mut first_byte)?;
-    if n == 0 {
-        return Ok(sequences); // empty file
+    loop {
+        let n = buf_reader.read(&mut first_byte)?;
+        if n == 0 {
+            return Ok(sequences); // empty or whitespace-only file
+        }
+        if !first_byte[0].is_ascii_whitespace() {
+            break;
+        }
     }
 
     let is_fastq = first_byte[0] == b'@';
@@ -186,7 +201,7 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
             // Line 2: Sequence
             seq_buf.clear();
             if buf_reader.read_until(b'\n', &mut seq_buf)? == 0 {
-                break;
+                anyhow::bail!("Malformed FASTQ record: unexpected EOF waiting for sequence line");
             }
             while seq_buf.ends_with(b"\n") || seq_buf.ends_with(b"\r") {
                 seq_buf.pop();
@@ -195,41 +210,53 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
             // Line 3: '+' header
             sep.clear();
             if buf_reader.read_until(b'\n', &mut sep)? == 0 {
-                break;
+                anyhow::bail!("Malformed FASTQ record: unexpected EOF waiting for '+' separator");
+            }
+            if !sep.starts_with(b"+") {
+                anyhow::bail!("Malformed FASTQ record: expected '+' separator line");
             }
 
             // Line 4: Quality string
             qual_buf.clear();
             if buf_reader.read_until(b'\n', &mut qual_buf)? == 0 {
-                break;
+                anyhow::bail!("Malformed FASTQ record: unexpected EOF waiting for quality scores");
             }
             while qual_buf.ends_with(b"\n") || qual_buf.ends_with(b"\r") {
                 qual_buf.pop();
             }
 
-            // Auto-detect Phred encoding from first non-empty quality line when no override given
+            // Auto-detect Phred encoding from early reads when no override given
             if !phred_detected && !qual_buf.is_empty() {
-                phred_offset = detect_phred_offset(&qual_buf).offset();
-                phred_detected = true;
+                // If any character < 59 ('!') appears, it can only be Phred+33; lock immediately
+                if qual_buf.iter().any(|&b| (33..59).contains(&b)) {
+                    phred_offset = 33;
+                    phred_detected = true;
+                } else if qual_buf.iter().any(|&b| b > 74) {
+                    phred_offset = 64;
+                    phred_detected = true;
+                }
             }
 
             if !seq_buf.is_empty() {
                 if let Some(cfg) = filter {
-                    // Check N base count
-                    let n_count = seq_buf.iter().filter(|&&b| b == b'N' || b == b'n').count();
-                    if n_count <= cfg.max_ns {
-                        // 3' quality score trimming
-                        let mut valid_len = seq_buf.len().min(qual_buf.len());
-                        while valid_len > 0 {
-                            let q_char = qual_buf[valid_len - 1];
-                            let q_score = q_char.saturating_sub(phred_offset);
-                            if q_score >= cfg.min_quality {
-                                break;
-                            }
-                            valid_len -= 1;
+                    // 1. 3' quality score trimming
+                    let mut valid_len = seq_buf.len().min(qual_buf.len());
+                    while valid_len > 0 {
+                        let q_char = qual_buf[valid_len - 1];
+                        let q_score = q_char.saturating_sub(phred_offset);
+                        if q_score >= cfg.min_quality {
+                            break;
                         }
+                        valid_len -= 1;
+                    }
 
-                        if valid_len >= cfg.min_read_len {
+                    // 2. Check remaining length and N base count on trimmed portion
+                    if valid_len >= cfg.min_read_len {
+                        let n_count = seq_buf[..valid_len]
+                            .iter()
+                            .filter(|&&b| b == b'N' || b == b'n')
+                            .count();
+                        if n_count <= cfg.max_ns {
                             sequences.push(seq_buf[..valid_len].to_vec());
                         }
                     }
@@ -238,9 +265,26 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
                 }
             }
 
-            // Read Line 1 (Header) of the next record
-            header.clear();
-            if buf_reader.read_until(b'\n', &mut header)? == 0 {
+            // Read Line 1 (Header) of the next record, skipping blank lines
+            let mut found_next = false;
+            loop {
+                header.clear();
+                if buf_reader.read_until(b'\n', &mut header)? == 0 {
+                    break;
+                }
+                while header.ends_with(b"\n") || header.ends_with(b"\r") {
+                    header.pop();
+                }
+                if header.is_empty() {
+                    continue;
+                }
+                if !header.starts_with(b"@") {
+                    anyhow::bail!("Malformed FASTQ record: expected '@' header");
+                }
+                found_next = true;
+                break;
+            }
+            if !found_next {
                 break;
             }
         }
@@ -299,17 +343,30 @@ pub fn parse_linked_reads_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<Linke
         if buf_reader.read_until(b'\n', &mut header)? == 0 {
             break;
         }
+        while header.ends_with(b"\n") || header.ends_with(b"\r") {
+            header.pop();
+        }
+        if header.is_empty() {
+            continue;
+        }
+        if !header.starts_with(b"@") {
+            anyhow::bail!("Malformed FASTQ record in linked reads: expected '@' header");
+        }
+
         seq.clear();
         if buf_reader.read_until(b'\n', &mut seq)? == 0 {
-            break;
+            anyhow::bail!("Malformed FASTQ record in linked reads: unexpected EOF waiting for sequence");
         }
         sep.clear();
         if buf_reader.read_until(b'\n', &mut sep)? == 0 {
-            break;
+            anyhow::bail!("Malformed FASTQ record in linked reads: unexpected EOF waiting for '+' separator");
+        }
+        if !sep.starts_with(b"+") {
+            anyhow::bail!("Malformed FASTQ record in linked reads: expected '+' separator");
         }
         qual.clear();
         if buf_reader.read_until(b'\n', &mut qual)? == 0 {
-            break;
+            anyhow::bail!("Malformed FASTQ record in linked reads: unexpected EOF waiting for quality scores");
         }
 
         while seq.ends_with(b"\n") || seq.ends_with(b"\r") {

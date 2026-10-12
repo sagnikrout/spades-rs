@@ -33,7 +33,7 @@ impl Simplifier {
             .filter(|u| u.sequence.len() >= self.k)
             .map(|u| u.mean_coverage)
             .collect();
-        significant_covs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        significant_covs.sort_by(|a, b| a.total_cmp(b));
 
         let median_cov = if !significant_covs.is_empty() {
             significant_covs[significant_covs.len() / 2]
@@ -249,7 +249,7 @@ impl Simplifier {
             }
 
             // Find all disjoint unambiguous pairs (i -> j) in a single pass
-            let mut merge_pairs: Vec<(usize, usize, bool)> = Vec::new();
+            let mut merge_pairs: Vec<(usize, bool, usize, bool)> = Vec::new();
             let mut used_as_source: hashbrown::HashSet<usize> = hashbrown::HashSet::new();
             let mut used_as_target: hashbrown::HashSet<usize> = hashbrown::HashSet::new();
 
@@ -260,46 +260,58 @@ impl Simplifier {
                 {
                     continue;
                 }
-                let suffix_i = u_i.sequence[u_i.sequence.len() - k1..].to_vec();
 
-                if let Some(matches) = prefix_map.get(&suffix_i) {
-                    let valid_matches: Vec<_> = matches.iter().filter(|&&(j, _)| i != j).collect();
-                    let mut unique_targets: Vec<(usize, bool)> = Vec::new();
-                    for &&(j, is_rc) in &valid_matches {
-                        if !unique_targets.iter().any(|&(uj, _)| uj == j) {
-                            unique_targets.push((j, is_rc));
-                        }
+                for is_rc_i in [false, true] {
+                    if used_as_source.contains(&i) || used_as_target.contains(&i) {
+                        break;
                     }
+                    let out_kmer = if !is_rc_i {
+                        u_i.sequence[u_i.sequence.len() - k1..].to_vec()
+                    } else {
+                        Self::revcomp_slice(&u_i.sequence[..k1])
+                    };
 
-                    if unique_targets.len() == 1 {
-                        let (j, is_rc) = unique_targets[0];
-                        if used_as_source.contains(&j) || used_as_target.contains(&j) {
-                            continue;
+                    if let Some(matches) = prefix_map.get(&out_kmer) {
+                        let valid_matches: Vec<_> =
+                            matches.iter().filter(|&&(j, _)| i != j).collect();
+                        let mut unique_targets: Vec<(usize, bool)> = Vec::new();
+                        for &&(j, is_rc_j) in &valid_matches {
+                            if !unique_targets.iter().any(|&(uj, _)| uj == j) {
+                                unique_targets.push((j, is_rc_j));
+                            }
                         }
 
-                        // Degree check: ensure j's incoming endpoint also has exactly 1 predecessor (i)
-                        let j_prefix = if !is_rc {
-                            unitigs[j].sequence[..k1].to_vec()
-                        } else {
-                            Self::revcomp_slice(
-                                &unitigs[j].sequence[unitigs[j].sequence.len() - k1..],
-                            )
-                        };
-
-                        if let Some(in_matches) = suffix_map.get(&j_prefix) {
-                            let valid_in: Vec<_> =
-                                in_matches.iter().filter(|&&(src, _)| src != j).collect();
-                            let mut unique_in: Vec<usize> = Vec::new();
-                            for &&(src, _) in &valid_in {
-                                if !unique_in.contains(&src) {
-                                    unique_in.push(src);
-                                }
+                        if unique_targets.len() == 1 {
+                            let (j, is_rc_j) = unique_targets[0];
+                            if used_as_source.contains(&j) || used_as_target.contains(&j) {
+                                continue;
                             }
 
-                            if unique_in.len() == 1 && unique_in[0] == i {
-                                merge_pairs.push((i, j, is_rc));
-                                used_as_source.insert(i);
-                                used_as_target.insert(j);
+                            // Degree check: ensure j's incoming endpoint also has exactly 1 predecessor (i)
+                            let j_prefix = if !is_rc_j {
+                                unitigs[j].sequence[..k1].to_vec()
+                            } else {
+                                Self::revcomp_slice(
+                                    &unitigs[j].sequence[unitigs[j].sequence.len() - k1..],
+                                )
+                            };
+
+                            if let Some(in_matches) = suffix_map.get(&j_prefix) {
+                                let valid_in: Vec<_> =
+                                    in_matches.iter().filter(|&&(src, _)| src != j).collect();
+                                let mut unique_in: Vec<usize> = Vec::new();
+                                for &&(src, _) in &valid_in {
+                                    if !unique_in.contains(&src) {
+                                        unique_in.push(src);
+                                    }
+                                }
+
+                                if unique_in.len() == 1 && unique_in[0] == i {
+                                    merge_pairs.push((i, is_rc_i, j, is_rc_j));
+                                    used_as_source.insert(i);
+                                    used_as_target.insert(j);
+                                    break;
+                                }
                             }
                         }
                     }
@@ -313,8 +325,11 @@ impl Simplifier {
             // Execute all disjoint merges
             let mut consumed: hashbrown::HashSet<usize> =
                 hashbrown::HashSet::with_capacity(merge_pairs.len());
-            for (i, j, is_rc) in merge_pairs {
-                if is_rc {
+            for (i, is_rc_i, j, is_rc_j) in merge_pairs {
+                if is_rc_i {
+                    unitigs[i].sequence = Self::revcomp_slice(&unitigs[i].sequence);
+                }
+                if is_rc_j {
                     unitigs[j].sequence = Self::revcomp_slice(&unitigs[j].sequence);
                 }
 
@@ -324,13 +339,18 @@ impl Simplifier {
                 let cov_i = unitigs[i].mean_coverage;
                 let cov_j = unitigs[j].mean_coverage;
 
-                // merged_len = len_i + seq_j.len() = len_i + len_j - k1
-                // (the k-1 overlap is not duplicated in the merged sequence)
                 let merged_len = len_i + seq_j.len();
+                let merged_kmers = unitigs[i].kmers_count + unitigs[j].kmers_count;
+                unitigs[i].mean_coverage = if merged_kmers > 0 {
+                    (cov_i * unitigs[i].kmers_count as f64 + cov_j * unitigs[j].kmers_count as f64)
+                        / merged_kmers as f64
+                } else if merged_len > 0 {
+                    (cov_i * len_i as f64 + cov_j * len_j as f64) / merged_len as f64
+                } else {
+                    0.0
+                };
                 unitigs[i].sequence.extend_from_slice(&seq_j);
-                unitigs[i].mean_coverage =
-                    (cov_i * len_i as f64 + cov_j * len_j as f64) / merged_len as f64;
-                unitigs[i].kmers_count += unitigs[j].kmers_count;
+                unitigs[i].kmers_count = merged_kmers;
 
                 consumed.insert(j);
                 changed = true;

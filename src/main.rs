@@ -126,7 +126,7 @@ enum Commands {
         splitter: Option<Vec<PathBuf>>,
 
         /// Optional list of k-mers for multi-k iterative assembly (e.g. 21,33,55)
-        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        #[arg(long, value_delimiter = ',', num_args = 1.., value_parser = validate_k)]
         multik: Option<Vec<usize>>,
 
         /// Maximum physical memory budget in GB (defaults to Available System RAM - 20%)
@@ -190,11 +190,11 @@ enum Commands {
         adapters: Option<Vec<String>>,
 
         /// Force Phred+64 encoding format
-        #[arg(long)]
+        #[arg(long, conflicts_with = "phred33")]
         phred64: bool,
 
         /// Force Phred+33 encoding format
-        #[arg(long)]
+        #[arg(long, conflicts_with = "phred64")]
         phred33: bool,
 
         /// Number of worker threads
@@ -242,7 +242,7 @@ enum Commands {
         output: PathBuf,
 
         /// K-mer size for polishing alignment anchors
-        #[arg(short = 'k', default_value_t = 21)]
+        #[arg(short = 'k', default_value_t = 21, value_parser = validate_k)]
         k: usize,
 
         /// Minimum coverage threshold required to alter a consensus base
@@ -261,7 +261,7 @@ enum Commands {
         test_dir: Option<PathBuf>,
 
         /// K-mer size
-        #[arg(short, long, default_value_t = 31)]
+        #[arg(short, long, default_value_t = 31, value_parser = validate_k)]
         k: usize,
     },
 }
@@ -328,22 +328,32 @@ fn main() -> anyhow::Result<()> {
                     .build_global()?;
             }
 
-            let mut all_inputs = inputs;
-            if let Some(r1) = pe1_1 {
-                all_inputs.insert(0, r1);
-                if let Some(r2) = pe1_2 {
-                    all_inputs.insert(1, r2);
+            let mut all_inputs = Vec::new();
+            match (pe1_1, pe1_2) {
+                (Some(r1), Some(r2)) => {
+                    all_inputs.push(r1);
+                    all_inputs.push(r2);
                 }
-            } else if let Some(r2) = pe1_2 {
-                all_inputs.push(r2);
-            }
-            if let Some(s) = pe1_s {
-                all_inputs.push(s);
+                (Some(_), None) => {
+                    anyhow::bail!(
+                        "Forward mate read (-1 / --pe1-1) provided without reverse mate (-2 / --pe1-2). Use -s / --pe1-s for single-end reads."
+                    );
+                }
+                (None, Some(_)) => {
+                    anyhow::bail!(
+                        "Reverse mate read (-2 / --pe1-2) provided without forward mate (-1 / --pe1-1)."
+                    );
+                }
+                (None, None) => {}
             }
             let is_interleaved = pe1_12.is_some();
             if let Some(interleaved) = pe1_12 {
                 all_inputs.push(interleaved);
             }
+            if let Some(s) = pe1_s {
+                all_inputs.push(s);
+            }
+            all_inputs.extend(inputs);
 
             if all_inputs.is_empty() {
                 anyhow::bail!(
@@ -442,9 +452,9 @@ fn main() -> anyhow::Result<()> {
             println!("  Output path: {:?}", output);
             println!("-----------------------------------------------------------");
 
-            let result = if let Some(kms) = multik {
+            let result = if let Some(ref kms) = multik {
                 let mk_config = MultiKConfig {
-                    kmers: kms,
+                    kmers: kms.clone(),
                     min_coverage: coverage,
                     min_contig_len: min_len,
                     bloom_bits: memory_limits.optimal_bloom_bits(),
@@ -529,7 +539,13 @@ fn main() -> anyhow::Result<()> {
             write_scaffolds_fasta(&result.scaffolds, &scaffold_path)?;
             println!("  Scaffolds successfully exported to: {:?}", scaffold_path);
 
-            spades_rs::gfa::write_graph_gfa(k, &result.contigs, &gfa_path)?;
+            let effective_final_k = if let Some(ref kmers) = multik {
+                kmers.last().copied().unwrap_or(k)
+            } else {
+                k
+            };
+
+            spades_rs::gfa::write_graph_gfa(effective_final_k, &result.contigs, &gfa_path)?;
             println!("  Assembly graph (GFA v1.1) exported to: {:?}", gfa_path);
 
             if plasmid && !result.plasmids.is_empty() {
@@ -538,11 +554,14 @@ fn main() -> anyhow::Result<()> {
             }
 
             // Stage 5: Automatic assembly evaluation summary
-            if let Ok(eval_metrics) =
-                spades_rs::eval::evaluate_assembly(&contig_path, None, min_len)
-            {
-                println!();
-                eval_metrics.print_summary();
+            match spades_rs::eval::evaluate_assembly(&contig_path, None, min_len) {
+                Ok(eval_metrics) => {
+                    println!();
+                    eval_metrics.print_summary();
+                }
+                Err(e) => {
+                    eprintln!("  [Notice] Assembly evaluation could not be completed: {}", e);
+                }
             }
         }
 

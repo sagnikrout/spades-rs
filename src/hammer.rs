@@ -26,82 +26,91 @@ impl ErrorCorrector {
         Self { k }
     }
 
+    /// Corrects a single read in-place using a reusable scratch buffer against the solid k-mer filter.
+    /// Returns `true` if at least one single-nucleotide error was corrected.
+    pub fn correct_read_in_place(
+        &self,
+        seq: &mut [u8],
+        scratch: &mut Vec<u8>,
+        filter: &TwoTierFilter,
+    ) -> bool {
+        let k = self.k;
+        if seq.len() < k {
+            return false;
+        }
+
+        scratch.clear();
+        scratch.extend_from_slice(seq);
+        let mut modified = false;
+
+        for i in 0..=(scratch.len() - k) {
+            if let Some(km) = Kmer256::from_bytes(&scratch[i..i + k], k) {
+                let (can, _) = km.canonical(k);
+                if !filter.is_solid_kmer256(can) {
+                    let mut best_sub: Option<(usize, u8)> = None;
+                    let mut max_solid_gain = 0;
+
+                    for offset in 0..k {
+                        let orig_base = scratch[i + offset];
+                        for &cand_base in b"ACGT" {
+                            if cand_base == orig_base {
+                                continue;
+                            }
+                            scratch[i + offset] = cand_base;
+                            if let Some(cand_km) = Kmer256::from_bytes(&scratch[i..i + k], k) {
+                                let (cand_can, _) = cand_km.canonical(k);
+                                if filter.is_solid_kmer256(cand_can) {
+                                    let pos = i + offset;
+                                    let start_scan = pos.saturating_sub(k - 1);
+                                    let end_scan = pos.min(scratch.len() - k);
+                                    let mut solid_count = 0;
+                                    for s in start_scan..=end_scan {
+                                        if let Some(surr_km) =
+                                            Kmer256::from_bytes(&scratch[s..s + k], k)
+                                        {
+                                            let (surr_can, _) = surr_km.canonical(k);
+                                            if filter.is_solid_kmer256(surr_can) {
+                                                solid_count += 1;
+                                            }
+                                        }
+                                    }
+                                    if solid_count > max_solid_gain {
+                                        max_solid_gain = solid_count;
+                                        best_sub = Some((offset, cand_base));
+                                    }
+                                }
+                            }
+                            scratch[i + offset] = orig_base;
+                        }
+                    }
+
+                    if let Some((offset, cand_base)) = best_sub {
+                        seq[i + offset] = cand_base;
+                        scratch[i + offset] = cand_base;
+                        modified = true;
+                    }
+                }
+            }
+        }
+
+        modified
+    }
+
     /// Corrects reads in parallel using the TwoTierFilter solid k-mer index.
     pub fn correct_reads(
         &self,
         reads: Vec<Vec<u8>>,
         filter: &TwoTierFilter,
     ) -> (Vec<Vec<u8>>, usize) {
-        let k = self.k;
         let corrected_count = std::sync::atomic::AtomicUsize::new(0);
 
         let corrected_reads: Vec<Vec<u8>> = reads
             .into_par_iter()
             .map(|mut seq| {
-                if seq.len() < k {
-                    return seq;
-                }
-
-                // Evaluate candidate substitutions against an unmutated copy of the read
-                // so earlier edits do not cascade or bias overlapping window counts.
-                let mut scratch = seq.clone();
-                let mut modified = false;
-
-                for i in 0..=(scratch.len() - k) {
-                    if let Some(km) = Kmer256::from_bytes(&scratch[i..i + k], k) {
-                        let (can, _) = km.canonical(k);
-                        if !filter.is_solid_kmer256(can) {
-                            let mut best_sub: Option<(usize, u8)> = None;
-                            let mut max_solid_gain = 0;
-
-                            for offset in 0..k {
-                                let orig_base = scratch[i + offset];
-                                for &cand_base in b"ACGT" {
-                                    if cand_base == orig_base {
-                                        continue;
-                                    }
-                                    scratch[i + offset] = cand_base;
-                                    if let Some(cand_km) =
-                                        Kmer256::from_bytes(&scratch[i..i + k], k)
-                                    {
-                                        let (cand_can, _) = cand_km.canonical(k);
-                                        if filter.is_solid_kmer256(cand_can) {
-                                            let pos = i + offset;
-                                            let start_scan = pos.saturating_sub(k - 1);
-                                            let end_scan = pos.min(scratch.len() - k);
-                                            let mut solid_count = 0;
-                                            for s in start_scan..=end_scan {
-                                                if let Some(surr_km) =
-                                                    Kmer256::from_bytes(&scratch[s..s + k], k)
-                                                {
-                                                    let (surr_can, _) = surr_km.canonical(k);
-                                                    if filter.is_solid_kmer256(surr_can) {
-                                                        solid_count += 1;
-                                                    }
-                                                }
-                                            }
-                                            if solid_count > max_solid_gain {
-                                                max_solid_gain = solid_count;
-                                                best_sub = Some((offset, cand_base));
-                                            }
-                                        }
-                                    }
-                                    scratch[i + offset] = orig_base;
-                                }
-                            }
-
-                            if let Some((offset, cand_base)) = best_sub {
-                                seq[i + offset] = cand_base;
-                                modified = true;
-                            }
-                        }
-                    }
-                }
-
-                if modified {
+                let mut scratch = Vec::with_capacity(seq.len());
+                if self.correct_read_in_place(&mut seq, &mut scratch, filter) {
                     corrected_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
-
                 seq
             })
             .collect();

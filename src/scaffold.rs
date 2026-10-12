@@ -37,9 +37,9 @@ impl LocalGapCloser {
         right_seq: &[u8],
         candidate_reads: &[&[u8]],
     ) -> Option<Vec<u8>> {
-        // 1. Check direct prefix/suffix overlap
-        let min_ov = self.k.min(4);
-        let max_ov = 31.min(left_seq.len()).min(right_seq.len());
+        // 1. Check direct prefix/suffix overlap: require at least min(k-1, 4) bp overlap
+        let min_ov = (self.k.saturating_sub(1)).clamp(1, 4);
+        let max_ov = self.k.max(31).min(left_seq.len()).min(right_seq.len());
         if max_ov >= min_ov {
             for ov in (min_ov..=max_ov).rev() {
                 if left_seq[left_seq.len() - ov..] == right_seq[..ov] {
@@ -115,8 +115,11 @@ impl LocalGapCloser {
                     merged.extend_from_slice(right_seq);
                     return Some(merged);
                 } else {
+                    let overlap = k - walked.len();
                     let mut merged = left_seq.to_vec();
-                    merged.extend_from_slice(right_seq);
+                    if right_seq.len() > overlap {
+                        merged.extend_from_slice(&right_seq[overlap..]);
+                    }
                     return Some(merged);
                 }
             }
@@ -201,12 +204,16 @@ impl Scaffolder {
         // Decode a bounded pool of candidate reads for local gap closure when packed reads are provided
         let mut decoded_pool: Vec<Vec<u8>> = Vec::new();
         if let Some(p_store) = packed {
-            let max_sample = p_store.len().min(4096);
-            decoded_pool.reserve(max_sample);
-            for idx in 0..max_sample {
-                let mut buf = Vec::new();
-                p_store.get_read(idx, &mut buf);
-                decoded_pool.push(buf);
+            let total_reads = p_store.len();
+            if total_reads > 0 {
+                let max_sample = total_reads.min(8192);
+                let step = (total_reads / max_sample).max(1);
+                decoded_pool.reserve(max_sample);
+                for idx in (0..total_reads).step_by(step).take(max_sample) {
+                    let mut buf = Vec::new();
+                    p_store.get_read(idx, &mut buf);
+                    decoded_pool.push(buf);
+                }
             }
         }
         let candidate_refs: Vec<&[u8]> = decoded_pool.iter().map(|v| v.as_slice()).collect();
@@ -302,9 +309,13 @@ pub fn write_scaffolds_fasta<P: AsRef<Path>>(scaffolds: &[Unitig], out_path: P) 
             scaf.sequence.len(),
             scaf.mean_coverage
         )?;
-        for chunk in scaf.sequence.chunks(80) {
-            writer.write_all(chunk)?;
+        if scaf.sequence.is_empty() {
             writer.write_all(b"\n")?;
+        } else {
+            for chunk in scaf.sequence.chunks(80) {
+                writer.write_all(chunk)?;
+                writer.write_all(b"\n")?;
+            }
         }
     }
     writer.flush()?;

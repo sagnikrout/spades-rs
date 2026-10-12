@@ -1,20 +1,28 @@
-//! Lock-free concurrent Two-Tier Bloom Filter (The Memory Shield).
+//! Lock-free concurrent two-tier Bloom filter for $k$-mer abundance screening.
 //!
-//! Eliminates singleton sequencing error k-mers before graph allocation.
-//! Uses atomic bit-vectors for concurrent access across all 22 threads without lock contention.
+//! Filters out singleton sequencing errors (k-mers seen only once) before allocating
+//! the hash-based de Bruijn graph:
+//! - Tier 1 (`seen_bits`): records whether a $k$-mer has been observed at least once.
+//! - Tier 2 (`solid_bits`): promotes a $k$-mer when all 3 independent hash positions were
+//!   already set in `seen_bits` (indicating coverage $\ge 2$).
 
 use crate::dna::Kmer256;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Lock-free two-tier bit-vector Bloom filter backed by 64-bit atomic words.
 pub struct TwoTierFilter {
+    /// Total number of addressable bits in each tier (always a multiple of 64).
     size_bits: usize,
+    /// Number of 64-bit atomic words in each tier.
     num_words: usize,
+    /// Tier 1 bit-vector: bits set on first observation of a k-mer.
     seen_bits: Vec<AtomicU64>,
+    /// Tier 2 bit-vector: bits set on second and subsequent observations of a k-mer.
     solid_bits: Vec<AtomicU64>,
 }
 
 impl TwoTierFilter {
-    /// Creates a filter with `capacity` bits (rounded up to 64-bit words).
+    /// Creates a two-tier filter with `capacity_bits` per tier (rounded up to 64-bit words).
     pub fn new(capacity_bits: usize) -> Self {
         let num_words = capacity_bits.div_ceil(64);
         let size_bits = num_words * 64;
@@ -35,7 +43,7 @@ impl TwoTierFilter {
     }
 
     /// Observes a 64-bit k-mer. If already observed, marks it as 'solid' (coverage >= 2).
-    /// Returns true if it was already marked solid.
+    /// Returns true if it was already observed at least once before this call.
     #[inline(always)]
     pub fn insert(&self, kmer: u64) -> bool {
         self.insert_kmer256(Kmer256(kmer as u128, 0))
@@ -90,6 +98,7 @@ impl TwoTierFilter {
         }
     }
 
+    /// Returns `true` if all three hash positions for `kmer` are set in `solid_bits` (coverage >= 2).
     #[inline(always)]
     pub fn is_solid_kmer256(&self, kmer: Kmer256) -> bool {
         let h1 = Self::hash_kmer256(kmer, 0x517cc1b727220a95) as usize % self.size_bits;

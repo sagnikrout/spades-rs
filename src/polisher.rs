@@ -32,6 +32,7 @@ impl Polisher {
             .map(|c| c.sequence.len().saturating_sub(k - 1))
             .sum();
         let mut kmer_pos: HashMap<Kmer256, (u32, u32, bool)> = HashMap::with_capacity(total_kmers);
+        let mut seen_repeats: hashbrown::HashSet<Kmer256> = hashbrown::HashSet::new();
 
         for (c_idx, contig) in contigs.iter().enumerate() {
             let len = contig.sequence.len();
@@ -41,9 +42,18 @@ impl Polisher {
             for i in 0..=(len - k) {
                 if let Some(km) = Kmer256::from_bytes(&contig.sequence[i..i + k], k) {
                     let (can, is_rc) = km.canonical(k);
-                    kmer_pos
-                        .entry(can)
-                        .or_insert((c_idx as u32, i as u32, is_rc));
+                    if seen_repeats.contains(&can) {
+                        continue;
+                    }
+                    if let Some(&(existing_c, _, _)) = kmer_pos.get(&can) {
+                        // Multi-mapped k-mer across different contigs
+                        if k >= 11 || (existing_c as usize) != c_idx {
+                            kmer_pos.remove(&can);
+                            seen_repeats.insert(can);
+                        }
+                    } else {
+                        kmer_pos.insert(can, (c_idx as u32, i as u32, is_rc));
+                    }
                 }
             }
         }
@@ -128,7 +138,7 @@ impl Polisher {
         tallies: &[Vec<[AtomicU32; 4]>],
     ) -> (Vec<Unitig>, usize) {
         let (min_support, dominance_ratio) = if self.careful {
-            (self.min_coverage_support.min(3), 0.70)
+            (self.min_coverage_support.max(8), 0.85)
         } else {
             (self.min_coverage_support, 0.80)
         };

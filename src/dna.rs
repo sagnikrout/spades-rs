@@ -60,18 +60,11 @@ pub fn revcomp_bytes(seq: &[u8]) -> Vec<u8> {
 #[inline(always)]
 pub fn revcomp_kmer_u64(mut kmer: u64, k: usize) -> u64 {
     debug_assert!(k > 0 && k <= 32);
-    // Complement all 2-bit pairs
-    kmer = !kmer;
-    // Swap adjacent 2-bit pairs
-    kmer = ((kmer >> 2) & 0x3333333333333333) | ((kmer & 0x3333333333333333) << 2);
-    // Swap 4-bit nibbles
-    kmer = ((kmer >> 4) & 0x0F0F0F0F0F0F0F0F) | ((kmer & 0x0F0F0F0F0F0F0F0F) << 4);
-    // Swap bytes
-    kmer = ((kmer >> 8) & 0x00FF00FF00FF00FF) | ((kmer & 0x00FF00FF00FF00FF) << 8);
-    // Swap 16-bit words
-    kmer = ((kmer >> 16) & 0x0000FFFF0000FFFF) | ((kmer & 0x0000FFFF0000FFFF) << 16);
-    // Swap 32-bit halves
-    kmer = kmer.rotate_left(32);
+    // Complement and reverse all bits via CPU BSWAP/RBIT instruction
+    kmer = (!kmer).reverse_bits();
+    // Swap adjacent odd/even bits so 2-bit base order is restored:
+    // Bit pair (b1, b0) was reversed to (b0, b1); swap adjacent bits.
+    kmer = ((kmer >> 1) & 0x5555555555555555) | ((kmer & 0x5555555555555555) << 1);
 
     // Shift down so the k-mer occupies the lowest 2*k bits
     kmer >> (2 * (32 - k))
@@ -90,6 +83,7 @@ pub fn canonical_kmer_u64(kmer: u64, k: usize) -> (u64, bool) {
 
 /// Decodes a packed 2-bit k-mer into an ASCII String.
 pub fn kmer_to_string(mut kmer: u64, k: usize) -> String {
+    let k = k.min(32);
     let mut bytes = vec![0u8; k];
     for i in (0..k).rev() {
         bytes[i] = bit2_to_base((kmer & 3) as u8);
@@ -99,9 +93,9 @@ pub fn kmer_to_string(mut kmer: u64, k: usize) -> String {
 }
 
 /// Encodes an ASCII DNA string slice of length k into a packed u64.
-/// Returns None if any non-ACGT character is encountered.
+/// Returns None if any non-ACGT character is encountered or if k > 32.
 pub fn string_to_kmer(s: &[u8], k: usize) -> Option<u64> {
-    if s.len() < k {
+    if k == 0 || k > 32 || s.len() < k {
         return None;
     }
     let mut val = 0u64;
@@ -116,18 +110,9 @@ pub fn string_to_kmer(s: &[u8], k: usize) -> Option<u64> {
 #[inline(always)]
 pub fn revcomp_kmer_u128(mut kmer: u128, k: usize) -> u128 {
     debug_assert!(k > 0 && k <= 64);
-    kmer = !kmer;
-    kmer = ((kmer >> 2) & 0x33333333333333333333333333333333)
-        | ((kmer & 0x33333333333333333333333333333333) << 2);
-    kmer = ((kmer >> 4) & 0x0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F)
-        | ((kmer & 0x0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F0F) << 4);
-    kmer = ((kmer >> 8) & 0x00FF00FF00FF00FF00FF00FF00FF00FF)
-        | ((kmer & 0x00FF00FF00FF00FF00FF00FF00FF00FF) << 8);
-    kmer = ((kmer >> 16) & 0x0000FFFF0000FFFF0000FFFF0000FFFF)
-        | ((kmer & 0x0000FFFF0000FFFF0000FFFF0000FFFF) << 16);
-    kmer = ((kmer >> 32) & 0x00000000FFFFFFFF00000000FFFFFFFF)
-        | ((kmer & 0x00000000FFFFFFFF00000000FFFFFFFF) << 32);
-    kmer = kmer.rotate_left(64);
+    kmer = (!kmer).reverse_bits();
+    kmer = ((kmer >> 1) & 0x55555555555555555555555555555555)
+        | ((kmer & 0x55555555555555555555555555555555) << 1);
 
     if k == 64 {
         kmer
@@ -143,13 +128,16 @@ pub fn revcomp_kmer_u128(mut kmer: u128, k: usize) -> u128 {
 pub struct Kmer256(pub u128, pub u128);
 
 impl Kmer256 {
+    /// All-zero k-mer constant (corresponds to poly-A of length `k`).
     pub const ZERO: Self = Kmer256(0, 0);
 
+    /// Returns `true` if both 128-bit words are zero.
     #[inline(always)]
     pub fn is_zero(&self) -> bool {
         self.0 == 0 && self.1 == 0
     }
 
+    /// Computes the reverse-complement of a `k`-mer stored in `self`.
     #[inline(always)]
     pub fn revcomp(&self, k: usize) -> Self {
         debug_assert!(k > 0 && k <= 128);
@@ -160,6 +148,8 @@ impl Kmer256 {
             let lo_rc = revcomp_kmer_u128(self.0, 64);
             let hi_rc = revcomp_kmer_u128(self.1, k2);
 
+            // Place the reversed suffix (hi_rc) into the upper bits of the new prefix word (rc_lo)
+            // and shift the remaining bits of lo_rc across the 128-bit boundary into rc_hi.
             let shift_lo = 2 * (64 - k2);
             let rc_lo = if shift_lo >= 128 {
                 0
@@ -176,6 +166,8 @@ impl Kmer256 {
         }
     }
 
+    /// Returns `(canonical_kmer, is_rc)` where `canonical_kmer` is the lexicographically smaller
+    /// of `self` and `self.revcomp(k)`, and `is_rc` indicates whether the reverse-complement won.
     #[inline(always)]
     pub fn canonical(&self, k: usize) -> (Self, bool) {
         let rc = self.revcomp(k);
@@ -186,6 +178,7 @@ impl Kmer256 {
         }
     }
 
+    /// Shifts the k-mer left by 1 base (dropping the 5'-most base) and appends 2-bit base `b` at the 3' end.
     #[inline(always)]
     pub fn extend_right(&self, b: u8, k: usize) -> Self {
         debug_assert!(k > 0 && k <= 128);
@@ -210,6 +203,7 @@ impl Kmer256 {
         }
     }
 
+    /// Shifts the k-mer right by 1 base (dropping the 3'-most base) and prepends 2-bit base `a` at the 5' end.
     #[inline(always)]
     pub fn prepend_left(&self, a: u8, k: usize) -> Self {
         debug_assert!(k > 0 && k <= 128);
@@ -229,6 +223,7 @@ impl Kmer256 {
         }
     }
 
+    /// Extracts the 3'-most (last) 2-bit base of the `k`-mer.
     #[inline(always)]
     pub fn last_base(&self, k: usize) -> u8 {
         if k <= 64 {
@@ -238,8 +233,12 @@ impl Kmer256 {
         }
     }
 
+    /// Extracts the 5'-most (first) 2-bit base of the `k`-mer.
     #[inline(always)]
     pub fn first_base(&self, k: usize) -> u8 {
+        if k == 0 {
+            return 0;
+        }
         if k <= 64 {
             ((self.0 >> (2 * (k - 1))) & 3) as u8
         } else {
@@ -247,6 +246,7 @@ impl Kmer256 {
         }
     }
 
+    /// Decodes the 2-bit packed `k`-mer into an uppercase ASCII string (`A`, `C`, `G`, `T`).
     pub fn to_string(&self, k: usize) -> String {
         let mut bytes = vec![0u8; k];
         if k <= 64 {
@@ -271,7 +271,7 @@ impl Kmer256 {
     }
 
     pub fn from_bytes(s: &[u8], k: usize) -> Option<Self> {
-        if s.len() < k || k > 128 {
+        if k == 0 || s.len() < k || k > 128 {
             return None;
         }
         let mut lo = 0u128;

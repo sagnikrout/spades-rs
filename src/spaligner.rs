@@ -9,8 +9,11 @@ use crate::graph::Unitig;
 use hashbrown::HashMap;
 use rayon::prelude::*;
 
+/// Hybrid long-read scaffolding engine using seed-and-chain alignment across unitigs.
 pub struct LongReadResolver {
+    /// Primary de Bruijn graph k-mer size used for terminal unitig overlap detection.
     pub k: usize,
+    /// Minimum number of exact seed k-mer hits required to anchor a long read to a unitig.
     pub min_seed_matches: usize,
 }
 
@@ -23,9 +26,12 @@ impl Default for LongReadResolver {
     }
 }
 
+/// Pair of unique flanking unitig indices `(from_unitig, to_unitig)` bridged by a long read.
 type BridgePair = (usize, usize);
+/// Orientation and intermediate repeat path `(from_is_rev, repeat_path, to_is_rev)`.
 type BridgeConfig = (bool, Vec<(usize, bool)>, bool);
 
+/// Contiguous anchor interval of a long read mapped onto a single unitig.
 #[derive(Clone, Debug)]
 struct ReadAnchor {
     u_idx: usize,
@@ -35,6 +41,7 @@ struct ReadAnchor {
     hits: usize,
 }
 
+/// Union-find structure used to prevent cyclic scaffold chains during greedy link merging.
 struct DisjointSet {
     parent: Vec<usize>,
 }
@@ -91,7 +98,7 @@ impl LongReadResolver {
         let min_ov = if unitigs.len() <= 3 {
             (k1 / 2).max(1)
         } else {
-            10
+            10.min(k1).max(1)
         };
         let min_read_len = if unitigs.len() <= 3 {
             seed_k * 2
@@ -114,7 +121,7 @@ impl LongReadResolver {
         if covs.is_empty() {
             covs = unitigs.iter().map(|u| u.mean_coverage).collect();
         }
-        covs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        covs.sort_by(|a, b| a.total_cmp(b));
         let median_cov = if !covs.is_empty() {
             covs[covs.len() / 2]
         } else {
@@ -453,14 +460,30 @@ impl LongReadResolver {
 
                 for step_idx in 0..path_reps.len() {
                     for &(rep_u, rep_rev) in &path_reps[step_idx] {
+                        visited_unitigs[rep_u] = true;
                         let r_seq = if rep_rev {
                             revcomp_bytes(&unitigs[rep_u].sequence)
                         } else {
                             unitigs[rep_u].sequence.clone()
                         };
-                        seq.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
-                        seq.extend_from_slice(&r_seq);
-                        total_bp += r_seq.len() + 20;
+                        let max_ov = k1.min(seq.len()).min(r_seq.len());
+                        let mut ov_found = 0;
+                        if max_ov >= min_ov {
+                            for ov in (min_ov..=max_ov).rev() {
+                                if seq[seq.len() - ov..] == r_seq[..ov] {
+                                    ov_found = ov;
+                                    break;
+                                }
+                            }
+                        }
+                        if ov_found >= min_ov {
+                            seq.extend_from_slice(&r_seq[ov_found..]);
+                            total_bp += r_seq.len() - ov_found;
+                        } else {
+                            seq.extend_from_slice(b"NNNNNNNNNNNNNNNNNNNN");
+                            seq.extend_from_slice(&r_seq);
+                            total_bp += r_seq.len() + 20;
+                        }
                         cov_sum += unitigs[rep_u].mean_coverage * r_seq.len() as f64;
                         total_kmers += unitigs[rep_u].kmers_count;
                     }
@@ -516,6 +539,9 @@ impl LongReadResolver {
         }
 
         final_unitigs.sort_by_key(|u| std::cmp::Reverse(u.sequence.len()));
+        for (idx, u) in final_unitigs.iter_mut().enumerate() {
+            u.id = idx;
+        }
         final_unitigs
     }
 }

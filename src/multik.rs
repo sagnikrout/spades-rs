@@ -59,14 +59,17 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
     println!("===========================================================");
     println!("       MULTI-K-MER PROGRESSIVE ASSEMBLY ENGINE             ");
     println!("===========================================================");
+    if config.kmers.is_empty() {
+        anyhow::bail!("At least one k-mer must be specified for multi-k assembly");
+    }
     println!("  Target k-mer steps: {:?}", config.kmers);
 
     println!(
         "─── [Multi-K Preload] Ingesting and packing reads from {} input file(s) ───",
         input_files.len()
     );
-    let packed = if config.interleaved && input_files.len() == 1 {
-        PackedReads::from_interleaved_file(&input_files[0])?
+    let packed = if config.interleaved {
+        PackedReads::from_interleaved_files(input_files)?
     } else {
         PackedReads::from_files(input_files)?
     };
@@ -169,23 +172,28 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
 
         let mut rescued_count = 0;
         let k = rescue_k;
-        for prior_u in intermediate_unitigs {
+        for prior_u in intermediate_unitigs.into_iter().rev() {
             if prior_u.sequence.len() < 300 {
                 continue;
             }
             let mut missing_kmers = 0;
             let mut total_kmers = 0;
+            let mut u_kmers = Vec::new();
             for i in 0..=(prior_u.sequence.len() - k) {
                 if let Some(km) = crate::dna::string_to_kmer(&prior_u.sequence[i..i + k], k) {
                     let (can, _) = crate::dna::canonical_kmer_u64(km, k);
                     total_kmers += 1;
+                    u_kmers.push(can);
                     if !final_kmers.contains(&can) {
                         missing_kmers += 1;
                     }
                 }
             }
             if total_kmers > 0 && (missing_kmers as f64 / total_kmers as f64) >= 0.5 {
-                result.contigs.push(prior_u);
+                final_kmers.extend(u_kmers);
+                let mut rescued_u = prior_u;
+                rescued_u.id = result.contigs.len();
+                result.contigs.push(rescued_u);
                 rescued_count += 1;
             }
         }
@@ -197,6 +205,9 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
             result
                 .contigs
                 .sort_by_key(|u| std::cmp::Reverse(u.sequence.len()));
+            for (idx, u) in result.contigs.iter_mut().enumerate() {
+                u.id = idx;
+            }
             result.stats = crate::assemble::calculate_stats(&result.contigs);
         }
     }
