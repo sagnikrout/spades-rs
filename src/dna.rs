@@ -64,6 +64,9 @@ pub fn revcomp_bytes(seq: &[u8]) -> Vec<u8> {
 #[inline(always)]
 pub fn revcomp_kmer_u64(mut kmer: u64, k: usize) -> u64 {
     debug_assert!(k > 0 && k <= 32);
+    if k == 0 || k > 32 {
+        return 0;
+    }
     // Complement and reverse all bits via CPU BSWAP/RBIT instruction
     kmer = (!kmer).reverse_bits();
     // Swap adjacent odd/even bits so 2-bit base order is restored:
@@ -93,7 +96,7 @@ pub fn kmer_to_string(mut kmer: u64, k: usize) -> String {
         bytes[i] = bit2_to_base((kmer & 3) as u8);
         kmer >>= 2;
     }
-    String::from_utf8(bytes).unwrap()
+    String::from_utf8(bytes).unwrap_or_default()
 }
 
 /// Encodes an ASCII DNA string slice of length k into a packed u64.
@@ -114,6 +117,9 @@ pub fn string_to_kmer(s: &[u8], k: usize) -> Option<u64> {
 #[inline(always)]
 pub fn revcomp_kmer_u128(mut kmer: u128, k: usize) -> u128 {
     debug_assert!(k > 0 && k <= 64);
+    if k == 0 || k > 64 {
+        return 0;
+    }
     kmer = (!kmer).reverse_bits();
     kmer = ((kmer >> 1) & 0x55555555555555555555555555555555)
         | ((kmer & 0x55555555555555555555555555555555) << 1);
@@ -145,6 +151,9 @@ impl Kmer256 {
     #[inline(always)]
     pub fn revcomp(&self, k: usize) -> Self {
         debug_assert!(k > 0 && k <= 128);
+        if k == 0 || k > 128 {
+            return Self::ZERO;
+        }
         if k <= 64 {
             Kmer256(revcomp_kmer_u128(self.0, k), 0)
         } else {
@@ -186,6 +195,9 @@ impl Kmer256 {
     #[inline(always)]
     pub fn extend_right(&self, b: u8, k: usize) -> Self {
         debug_assert!(k > 0 && k <= 128);
+        if k == 0 || k > 128 {
+            return Self::ZERO;
+        }
         if k <= 64 {
             let mask = if k == 64 {
                 u128::MAX
@@ -211,6 +223,9 @@ impl Kmer256 {
     #[inline(always)]
     pub fn prepend_left(&self, a: u8, k: usize) -> Self {
         debug_assert!(k > 0 && k <= 128);
+        if k == 0 || k > 128 {
+            return Self::ZERO;
+        }
         if k <= 64 {
             Kmer256((self.0 >> 2) | ((a as u128) << (2 * (k - 1))), 0)
         } else {
@@ -230,6 +245,9 @@ impl Kmer256 {
     /// Extracts the 3'-most (last) 2-bit base of the `k`-mer.
     #[inline(always)]
     pub fn last_base(&self, k: usize) -> u8 {
+        if k == 0 {
+            return 0;
+        }
         if k <= 64 {
             (self.0 & 3) as u8
         } else {
@@ -271,7 +289,7 @@ impl Kmer256 {
                 val_hi >>= 2;
             }
         }
-        String::from_utf8(bytes).unwrap()
+        String::from_utf8(bytes).unwrap_or_default()
     }
 
     /// Encodes the first `k` ASCII nucleotides of `s` into a 2-bit packed [`Kmer256`],
