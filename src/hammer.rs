@@ -42,35 +42,37 @@ impl ErrorCorrector {
                     return seq;
                 }
 
+                // Evaluate candidate substitutions against an unmutated copy of the read
+                // so earlier edits do not cascade or bias overlapping window counts.
+                let mut scratch = seq.clone();
                 let mut modified = false;
 
-                for i in 0..=(seq.len() - k) {
-                    if let Some(km) = Kmer256::from_bytes(&seq[i..i + k], k) {
+                for i in 0..=(scratch.len() - k) {
+                    if let Some(km) = Kmer256::from_bytes(&scratch[i..i + k], k) {
                         let (can, _) = km.canonical(k);
                         if !filter.is_solid_kmer256(can) {
-                            // Non-solid k-mer detected: evaluate single-base substitutions
-                            // Find the substitution that maximizes solid k-mer coverage across the overlapping window
                             let mut best_sub: Option<(usize, u8)> = None;
                             let mut max_solid_gain = 0;
 
                             for offset in 0..k {
-                                let orig_base = seq[i + offset];
+                                let orig_base = scratch[i + offset];
                                 for &cand_base in b"ACGT" {
                                     if cand_base == orig_base {
                                         continue;
                                     }
-                                    seq[i + offset] = cand_base;
-                                    if let Some(cand_km) = Kmer256::from_bytes(&seq[i..i + k], k) {
+                                    scratch[i + offset] = cand_base;
+                                    if let Some(cand_km) =
+                                        Kmer256::from_bytes(&scratch[i..i + k], k)
+                                    {
                                         let (cand_can, _) = cand_km.canonical(k);
                                         if filter.is_solid_kmer256(cand_can) {
-                                            // Count how many overlapping k-mers are solid with this candidate base
                                             let pos = i + offset;
                                             let start_scan = pos.saturating_sub(k - 1);
-                                            let end_scan = pos.min(seq.len() - k);
+                                            let end_scan = pos.min(scratch.len() - k);
                                             let mut solid_count = 0;
                                             for s in start_scan..=end_scan {
                                                 if let Some(surr_km) =
-                                                    Kmer256::from_bytes(&seq[s..s + k], k)
+                                                    Kmer256::from_bytes(&scratch[s..s + k], k)
                                                 {
                                                     let (surr_can, _) = surr_km.canonical(k);
                                                     if filter.is_solid_kmer256(surr_can) {
@@ -84,7 +86,7 @@ impl ErrorCorrector {
                                             }
                                         }
                                     }
-                                    seq[i + offset] = orig_base;
+                                    scratch[i + offset] = orig_base;
                                 }
                             }
 

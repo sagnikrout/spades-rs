@@ -314,3 +314,16 @@ fn test_three_block_paired_synchronization_and_trimming() {
     assert_eq!(interleaved_store.pe_count(), store.pe_count());
     assert_eq!(interleaved_store.len(), store.len());
 }
+
+#[test]
+fn test_interleaved_file_populates_pe_count() {
+    let path = std::path::Path::new("data/modalities/interleaved_pe.fq.gz");
+    if path.exists() {
+        let store = PackedReads::from_interleaved_file(path).expect("interleaved file load");
+        assert!(
+            store.pe_count() > 0,
+            "from_interleaved_file must populate paired blocks (pe_count > 0)"
+        );
+        assert!(store.len() >= 2 * store.pe_count());
+    }
+}

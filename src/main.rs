@@ -340,6 +340,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(s) = pe1_s {
                 all_inputs.push(s);
             }
+            let is_interleaved = pe1_12.is_some();
             if let Some(interleaved) = pe1_12 {
                 all_inputs.push(interleaved);
             }
@@ -454,6 +455,7 @@ fn main() -> anyhow::Result<()> {
                     is_sc: sc,
                     polish: !no_polish,
                     careful,
+                    interleaved: is_interleaved,
                     long_reads: long_reads_opt,
                     linked_reads: splitter,
                     trusted_contigs,
@@ -473,6 +475,7 @@ fn main() -> anyhow::Result<()> {
                     is_sc: sc,
                     polish: !no_polish,
                     careful,
+                    interleaved: is_interleaved,
                     long_reads: long_reads_opt,
                     linked_reads: splitter,
                     trusted_contigs,
@@ -699,6 +702,7 @@ fn main() -> anyhow::Result<()> {
                 is_sc: false,
                 polish: true,
                 careful: false,
+                interleaved: false,
                 long_reads: None,
                 linked_reads: None,
                 trusted_contigs: None,

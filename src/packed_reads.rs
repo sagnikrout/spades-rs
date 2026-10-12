@@ -79,20 +79,33 @@ impl FastxReader {
         let mut buf_reader = BufReader::with_capacity(1024 * 1024, reader);
         let mut line_buf = Vec::with_capacity(1024);
 
-        let buf = buf_reader.fill_buf()?;
-        if buf.is_empty() {
-            return Ok(Self {
-                reader: buf_reader,
-                is_fastq: true,
-                eof: true,
-                line_buf,
-            });
+        // Skip any leading blank lines before inspecting the first record header
+        let is_fastq;
+        loop {
+            let buf = buf_reader.fill_buf()?;
+            if buf.is_empty() {
+                return Ok(Self {
+                    reader: buf_reader,
+                    is_fastq: true,
+                    eof: true,
+                    line_buf,
+                });
+            }
+            if buf[0] == b'\n' || buf[0] == b'\r' {
+                buf_reader.read_until(b'\n', &mut line_buf)?;
+                line_buf.clear();
+                continue;
+            }
+            is_fastq = buf[0] == b'@';
+            break;
         }
 
-        let is_fastq = buf[0] == b'@';
-        // Consume initial header line ('@...' or '>...')
-        buf_reader.read_until(b'\n', &mut line_buf)?;
-        line_buf.clear();
+        // For FASTA, consume the initial '>header' line so next_seq reads sequence lines until the next '>'.
+        // For FASTQ, leave the '@header' line in the stream so next_seq validates all 4 lines per record.
+        if !is_fastq {
+            buf_reader.read_until(b'\n', &mut line_buf)?;
+            line_buf.clear();
+        }
 
         Ok(Self {
             reader: buf_reader,
@@ -110,6 +123,25 @@ impl FastxReader {
 
         if self.is_fastq {
             loop {
+                // Line 1: '@header' (skip blank lines between records)
+                self.line_buf.clear();
+                if self.reader.read_until(b'\n', &mut self.line_buf)? == 0 {
+                    self.eof = true;
+                    return Ok(false);
+                }
+                while self.line_buf.ends_with(b"\n") || self.line_buf.ends_with(b"\r") {
+                    self.line_buf.pop();
+                }
+                if self.line_buf.is_empty() {
+                    continue;
+                }
+                if !self.line_buf.starts_with(b"@") {
+                    anyhow::bail!(
+                        "Malformed FASTQ record: expected '@' header, found '{}'",
+                        String::from_utf8_lossy(&self.line_buf[..self.line_buf.len().min(32)])
+                    );
+                }
+
                 // Line 2: Sequence
                 self.line_buf.clear();
                 if self.reader.read_until(b'\n', &mut self.line_buf)? == 0 {
@@ -127,6 +159,12 @@ impl FastxReader {
                     self.eof = true;
                     return Ok(!seq_out.is_empty());
                 }
+                if !self.line_buf.starts_with(b"+") {
+                    anyhow::bail!(
+                        "Malformed FASTQ record: expected '+' separator line, found '{}'",
+                        String::from_utf8_lossy(&self.line_buf[..self.line_buf.len().min(32)])
+                    );
+                }
 
                 // Line 4: Quality scores
                 self.line_buf.clear();
@@ -134,18 +172,19 @@ impl FastxReader {
                     self.eof = true;
                     return Ok(!seq_out.is_empty());
                 }
-
-                // Line 1 of next record: '@header'
-                self.line_buf.clear();
-                if self.reader.read_until(b'\n', &mut self.line_buf)? == 0 {
-                    self.eof = true;
+                while self.line_buf.ends_with(b"\n") || self.line_buf.ends_with(b"\r") {
+                    self.line_buf.pop();
+                }
+                if self.line_buf.len() != seq_out.len() {
+                    anyhow::bail!(
+                        "Malformed FASTQ record: sequence length ({}) != quality length ({})",
+                        seq_out.len(),
+                        self.line_buf.len()
+                    );
                 }
 
                 if !seq_out.is_empty() {
                     return Ok(true);
-                }
-                if self.eof {
-                    return Ok(false);
                 }
             }
         } else {
@@ -199,11 +238,7 @@ impl PackedReads {
     /// Number of synchronized clean paired-end read pairs ($N_{\text{pairs}}$).
     #[inline(always)]
     pub fn pe_count(&self) -> usize {
-        if self.pe_count > 0 {
-            self.pe_count
-        } else {
-            self.pe_boundary
-        }
+        self.pe_count.max(self.pe_boundary)
     }
 
     /// True if the store holds synchronized paired-end reads.
@@ -225,6 +260,16 @@ impl PackedReads {
         );
         self.get_read(p, buf1);
         self.get_read(p + count, buf2);
+    }
+
+    /// Appends all packed reads from `other` into `self` with zero re-encoding.
+    fn append_packed(&mut self, mut other: Self) {
+        let base_offset = self.data.len();
+        self.data.append(&mut other.data);
+        self.offsets
+            .extend(other.offsets.into_iter().map(|o| o + base_offset));
+        self.lengths.append(&mut other.lengths);
+        self.ambiguous_sidecar.append(&mut other.ambiguous_sidecar);
     }
 
     /// Ingests and packs FASTQ/FASTA files into the Three-Block layout.
@@ -250,188 +295,142 @@ impl PackedReads {
     }
 
     /// Synchronously ingests forward (`r1_path`) and reverse (`r2_path`) paired-end files
-    /// into the Three-Block layout.
+    /// directly into 2-bit Three-Block buffers in a single streaming pass.
     pub fn from_paired_files<P1: AsRef<Path>, P2: AsRef<Path>>(
         r1_path: P1,
         r2_path: P2,
     ) -> Result<Self> {
-        let mut r1_reader = FastxReader::open(r1_path)?;
-        let mut r2_reader = FastxReader::open(r2_path)?;
+        let mut r1_reader = FastxReader::open(&r1_path)?;
+        let mut r2_reader = FastxReader::open(&r2_path)?;
 
-        let mut clean_r1: Vec<Vec<u8>> = Vec::with_capacity(65_536);
-        let mut clean_r2: Vec<Vec<u8>> = Vec::with_capacity(65_536);
-        let mut unpaired_subreads: Vec<Vec<u8>> = Vec::new();
-        let mut sidecar: Vec<Vec<u8>> = Vec::new();
+        let mut b1_store = Self::with_capacity(65_536, 65_536 * 150);
+        let mut b2_store = Self::with_capacity(65_536, 65_536 * 150);
+        let mut b3_store = Self::default();
 
         let mut seq1 = Vec::with_capacity(512);
         let mut seq2 = Vec::with_capacity(512);
+        let mut r1_records = 0usize;
+        let mut r2_records = 0usize;
 
         loop {
             let has1 = r1_reader.next_seq(&mut seq1)?;
             let has2 = r2_reader.next_seq(&mut seq2)?;
+            if has1 {
+                r1_records += 1;
+            }
+            if has2 {
+                r2_records += 1;
+            }
 
             match (has1, has2) {
                 (true, true) => {
-                    partition_pair(
+                    partition_pair_streaming(
                         &seq1,
                         &seq2,
-                        &mut clean_r1,
-                        &mut clean_r2,
-                        &mut unpaired_subreads,
-                        &mut sidecar,
+                        &mut b1_store,
+                        &mut b2_store,
+                        &mut b3_store,
                     );
                 }
                 (true, false) => {
-                    route_unpaired_or_split(
-                        trim_n_ends(&seq1),
-                        &mut unpaired_subreads,
-                        &mut sidecar,
-                    );
+                    b3_store.ingest_read(&seq1);
                 }
                 (false, true) => {
-                    route_unpaired_or_split(
-                        trim_n_ends(&seq2),
-                        &mut unpaired_subreads,
-                        &mut sidecar,
-                    );
+                    b3_store.ingest_read(&seq2);
                 }
                 (false, false) => break,
             }
         }
 
-        Ok(Self::build_three_block_store(
-            clean_r1,
-            clean_r2,
-            unpaired_subreads,
-            sidecar,
-        ))
+        if r1_records != r2_records {
+            eprintln!(
+                "  [PackedReads Warning] Paired files {:?} ({} reads) and {:?} ({} reads) have unequal record counts; trailing reads routed to Block 3.",
+                r1_path.as_ref(),
+                r1_records,
+                r2_path.as_ref(),
+                r2_records
+            );
+        }
+
+        Ok(Self::finalize_three_blocks(b1_store, b2_store, b3_store))
     }
 
     /// Synchronously ingests an interleaved paired-end file (`--12`) into the Three-Block layout.
     pub fn from_interleaved_file<P: AsRef<Path>>(path: P) -> Result<Self> {
         let mut reader = FastxReader::open(path)?;
 
-        let mut clean_r1: Vec<Vec<u8>> = Vec::with_capacity(65_536);
-        let mut clean_r2: Vec<Vec<u8>> = Vec::with_capacity(65_536);
-        let mut unpaired_subreads: Vec<Vec<u8>> = Vec::new();
-        let mut sidecar: Vec<Vec<u8>> = Vec::new();
+        let mut b1_store = Self::with_capacity(65_536, 65_536 * 150);
+        let mut b2_store = Self::with_capacity(65_536, 65_536 * 150);
+        let mut b3_store = Self::default();
 
         let mut seq1 = Vec::with_capacity(512);
         let mut seq2 = Vec::with_capacity(512);
 
         while reader.next_seq(&mut seq1)? {
             if reader.next_seq(&mut seq2)? {
-                partition_pair(
-                    &seq1,
-                    &seq2,
-                    &mut clean_r1,
-                    &mut clean_r2,
-                    &mut unpaired_subreads,
-                    &mut sidecar,
-                );
+                partition_pair_streaming(&seq1, &seq2, &mut b1_store, &mut b2_store, &mut b3_store);
             } else {
                 // Trailing orphan read at end of interleaved stream
-                route_unpaired_or_split(trim_n_ends(&seq1), &mut unpaired_subreads, &mut sidecar);
+                b3_store.ingest_read(&seq1);
                 break;
             }
         }
 
-        Ok(Self::build_three_block_store(
-            clean_r1,
-            clean_r2,
-            unpaired_subreads,
-            sidecar,
-        ))
+        Ok(Self::finalize_three_blocks(b1_store, b2_store, b3_store))
     }
 
     /// Constructs a Three-Block `PackedReads` store from in-memory paired read slices.
     pub fn from_paired_slices(r1_reads: &[Vec<u8>], r2_reads: &[Vec<u8>]) -> Self {
-        let mut clean_r1 = Vec::with_capacity(r1_reads.len());
-        let mut clean_r2 = Vec::with_capacity(r2_reads.len());
-        let mut unpaired_subreads = Vec::new();
-        let mut sidecar = Vec::new();
+        let mut b1_store = Self::with_capacity(r1_reads.len(), r1_reads.len() * 150);
+        let mut b2_store = Self::with_capacity(r2_reads.len(), r2_reads.len() * 150);
+        let mut b3_store = Self::default();
 
         let common = r1_reads.len().min(r2_reads.len());
         for i in 0..common {
-            partition_pair(
+            partition_pair_streaming(
                 &r1_reads[i],
                 &r2_reads[i],
-                &mut clean_r1,
-                &mut clean_r2,
-                &mut unpaired_subreads,
-                &mut sidecar,
+                &mut b1_store,
+                &mut b2_store,
+                &mut b3_store,
             );
         }
         for r1 in &r1_reads[common..] {
-            route_unpaired_or_split(trim_n_ends(r1), &mut unpaired_subreads, &mut sidecar);
+            b3_store.ingest_read(r1);
         }
         for r2 in &r2_reads[common..] {
-            route_unpaired_or_split(trim_n_ends(r2), &mut unpaired_subreads, &mut sidecar);
+            b3_store.ingest_read(r2);
         }
 
-        Self::build_three_block_store(clean_r1, clean_r2, unpaired_subreads, sidecar)
+        Self::finalize_three_blocks(b1_store, b2_store, b3_store)
     }
 
     /// Constructs a Three-Block `PackedReads` store from an in-memory interleaved slice.
     pub fn from_interleaved_slices(reads: &[Vec<u8>]) -> Self {
-        let mut clean_r1 = Vec::with_capacity(reads.len() / 2);
-        let mut clean_r2 = Vec::with_capacity(reads.len() / 2);
-        let mut unpaired_subreads = Vec::new();
-        let mut sidecar = Vec::new();
+        let mut b1_store = Self::with_capacity(reads.len() / 2, (reads.len() / 2) * 150);
+        let mut b2_store = Self::with_capacity(reads.len() / 2, (reads.len() / 2) * 150);
+        let mut b3_store = Self::default();
 
         let mut iter = reads.iter();
         while let Some(r1) = iter.next() {
             if let Some(r2) = iter.next() {
-                partition_pair(
-                    r1,
-                    r2,
-                    &mut clean_r1,
-                    &mut clean_r2,
-                    &mut unpaired_subreads,
-                    &mut sidecar,
-                );
+                partition_pair_streaming(r1, r2, &mut b1_store, &mut b2_store, &mut b3_store);
             } else {
-                route_unpaired_or_split(trim_n_ends(r1), &mut unpaired_subreads, &mut sidecar);
+                b3_store.ingest_read(r1);
             }
         }
 
-        Self::build_three_block_store(clean_r1, clean_r2, unpaired_subreads, sidecar)
+        Self::finalize_three_blocks(b1_store, b2_store, b3_store)
     }
 
-    fn build_three_block_store(
-        clean_r1: Vec<Vec<u8>>,
-        clean_r2: Vec<Vec<u8>>,
-        unpaired_subreads: Vec<Vec<u8>>,
-        sidecar: Vec<Vec<u8>>,
-    ) -> Self {
-        debug_assert_eq!(clean_r1.len(), clean_r2.len());
-        let pe_count = clean_r1.len();
-        let total_reads = pe_count * 2 + unpaired_subreads.len();
-        let total_bases: usize = clean_r1.iter().map(|r| r.len()).sum::<usize>()
-            + clean_r2.iter().map(|r| r.len()).sum::<usize>()
-            + unpaired_subreads.iter().map(|r| r.len()).sum::<usize>();
-
-        let mut store = Self::with_capacity(total_reads, total_bases);
-        store.ambiguous_sidecar = sidecar;
-
-        // Block 1: Clean R1 [0 .. pe_count]
-        for r1 in &clean_r1 {
-            store.pack_clean(r1);
-        }
-        store.pe_count = pe_count;
-        store.pe_boundary = pe_count;
-
-        // Block 2: Clean R2 [pe_count .. 2 * pe_count]
-        for r2 in &clean_r2 {
-            store.pack_clean(r2);
-        }
-
-        // Block 3: Unpaired & split sub-reads [2 * pe_count .. total_reads]
-        for sub in &unpaired_subreads {
-            store.pack_clean(sub);
-        }
-
-        store
+    fn finalize_three_blocks(mut b1_store: Self, b2_store: Self, b3_store: Self) -> Self {
+        debug_assert_eq!(b1_store.len(), b2_store.len());
+        let pe_count = b1_store.len();
+        b1_store.pe_count = pe_count;
+        b1_store.pe_boundary = pe_count;
+        b1_store.append_packed(b2_store);
+        b1_store.append_packed(b3_store);
+        b1_store
     }
 
     /// Streams unpaired reads directly from a FASTQ/FASTA file into Block 3 of the 2-bit store.
@@ -458,14 +457,20 @@ impl PackedReads {
     /// 3. If no sub-read was long enough, push the trimmed read into the ambiguous sidecar.
     pub fn ingest_read(&mut self, read: &[u8]) {
         // Gate 1: End trim.
-        let read = trim_n_ends(read);
-        if read.is_empty() {
+        let trimmed = trim_n_ends(read);
+        self.ingest_trimmed_unpaired(trimmed);
+    }
+
+    /// Routes an already terminal-trimmed read through Gate 2 (internal N-split) and Gate 3 (sidecar).
+    #[inline]
+    fn ingest_trimmed_unpaired(&mut self, trimmed: &[u8]) {
+        if trimmed.is_empty() {
             return;
         }
 
         // Gate 2: Split on internal Ns and pack qualifying sub-reads.
         let mut any_packed = false;
-        for segment in split_on_n(read) {
+        for segment in split_on_n(trimmed) {
             if segment.len() >= MIN_K {
                 self.pack_clean(segment);
                 any_packed = true;
@@ -475,24 +480,20 @@ impl PackedReads {
 
         // Gate 3: Entire read had no long-enough sub-read → sidecar.
         if !any_packed {
-            self.ambiguous_sidecar.push(read.to_vec());
+            self.ambiguous_sidecar.push(trimmed.to_vec());
         }
     }
 
-    /// Packs and appends a clean ACGT read into the 2-bit buffer.
+    /// Packs and appends a clean ACGT read into the 2-bit buffer in a single pass.
     ///
     /// Precondition: every byte in `read` is A, C, G, or T (upper or lowercase).
     /// In debug builds a non-ACGT byte triggers a panic assertion.
     /// In release builds a non-ACGT byte is skipped (no `unwrap_or(0)` mutation).
     pub fn pack_clean(&mut self, read: &[u8]) {
-        let clean_len = read.iter().filter(|&&b| base_to_2bit(b).is_some()).count();
         let offset = self.data.len();
         self.offsets.push(offset);
-        self.lengths.push(clean_len as u32);
-        if clean_len == 0 {
-            return;
-        }
 
+        let mut clean_len = 0u32;
         let mut byte = 0u8;
         let mut shift = 6i32;
 
@@ -504,6 +505,7 @@ impl PackedReads {
                     continue; // release: skip instead of corrupting
                 }
             };
+            clean_len += 1;
             byte |= b2 << shift;
             if shift == 0 {
                 self.data.push(byte);
@@ -517,6 +519,7 @@ impl PackedReads {
         if shift != 6 {
             self.data.push(byte);
         }
+        self.lengths.push(clean_len);
     }
 
     /// Backwards-compatible entry point for callers that already hold clean ACGT sequences.
@@ -554,15 +557,15 @@ impl PackedReads {
         }
     }
 
-    /// Total memory footprint of packed store in bytes.
+    /// Total allocated memory footprint of packed store in bytes.
     pub fn memory_usage_bytes(&self) -> usize {
-        self.data.capacity()
-            + self.offsets.capacity() * std::mem::size_of::<usize>()
-            + self.lengths.capacity() * std::mem::size_of::<u32>()
+        self.data.len()
+            + self.offsets.len() * std::mem::size_of::<usize>()
+            + self.lengths.len() * std::mem::size_of::<u32>()
             + self
                 .ambiguous_sidecar
                 .iter()
-                .map(|v| v.capacity())
+                .map(|v| v.len())
                 .sum::<usize>()
     }
 }
@@ -571,14 +574,14 @@ impl PackedReads {
 // N-Handling & Partitioning Helpers (module-private)
 // -------------------------------------------------------------------------
 
-/// Strips leading and trailing `N`/`n` bases from a slice — zero allocation.
+/// Strips leading and trailing `N`/`n` (or non-ACGT ambiguous) bases from a slice — zero allocation.
 #[inline]
 fn trim_n_ends(read: &[u8]) -> &[u8] {
-    let is_n = |b: &u8| *b == b'N' || *b == b'n';
-    let start = read.iter().position(|b| !is_n(b)).unwrap_or(read.len());
+    let is_ambig = |b: &u8| base_to_2bit(*b).is_none();
+    let start = read.iter().position(|b| !is_ambig(b)).unwrap_or(read.len());
     let end = read
         .iter()
-        .rposition(|b| !is_n(b))
+        .rposition(|b| !is_ambig(b))
         .map(|i| i + 1)
         .unwrap_or(0);
     if start >= end {
@@ -588,30 +591,30 @@ fn trim_n_ends(read: &[u8]) -> &[u8] {
     }
 }
 
-/// Checks if a terminal-trimmed sequence contains any internal `N`/`n` bases.
+/// Checks if a terminal-trimmed sequence contains any internal `N`/`n` (or non-ACGT) bases.
 #[inline]
 fn has_internal_n(trimmed: &[u8]) -> bool {
-    trimmed.iter().any(|&b| b == b'N' || b == b'n')
+    trimmed.iter().any(|&b| base_to_2bit(b).is_none())
 }
 
-/// Iterates over contiguous ACGT sub-slices by splitting at every `N`/`n`.
-/// Zero allocation — yields sub-slices of the original `read`.
+/// Iterates over contiguous ACGT sub-slices by splitting at every `N`/`n` (or non-ACGT base).
+/// Zero allocation — yields non-empty sub-slices of the original `read`.
 #[inline]
 fn split_on_n(read: &[u8]) -> impl Iterator<Item = &[u8]> {
-    read.split(|&b| b == b'N' || b == b'n')
+    read.split(|&b| base_to_2bit(b).is_none())
         .filter(|s| !s.is_empty())
 }
 
-/// Routes a paired-end read pair into either the synchronized paired blocks (Blocks 1 & 2)
-/// or demotes broken/internal-N reads into Block 3 (sub-reads ≥ MIN_K) and `sidecar` (< MIN_K).
+/// Routes a paired-end read pair directly into the streaming 2-bit stores:
+/// - Clean pairs (both ≥ MIN_K, zero internal Ns after terminal trim) -> `b1_store` & `b2_store`.
+/// - Broken/internal-N pairs -> `b3_store` (sub-reads ≥ MIN_K and sidecar < MIN_K).
 #[inline]
-fn partition_pair(
+fn partition_pair_streaming(
     raw1: &[u8],
     raw2: &[u8],
-    clean_r1: &mut Vec<Vec<u8>>,
-    clean_r2: &mut Vec<Vec<u8>>,
-    unpaired_subreads: &mut Vec<Vec<u8>>,
-    sidecar: &mut Vec<Vec<u8>>,
+    b1_store: &mut PackedReads,
+    b2_store: &mut PackedReads,
+    b3_store: &mut PackedReads,
 ) {
     // Gate 1: Terminal trimming of poly-N ends BEFORE checking for internal breaks.
     let t1 = trim_n_ends(raw1);
@@ -622,34 +625,11 @@ fn partition_pair(
     let int_n2 = has_internal_n(t2);
 
     if !int_n1 && !int_n2 && t1.len() >= MIN_K && t2.len() >= MIN_K {
-        clean_r1.push(t1.to_vec());
-        clean_r2.push(t2.to_vec());
+        b1_store.pack_clean(t1);
+        b2_store.pack_clean(t2);
     } else {
-        route_unpaired_or_split(t1, unpaired_subreads, sidecar);
-        route_unpaired_or_split(t2, unpaired_subreads, sidecar);
-    }
-}
-
-/// Splits a trimmed read on internal Ns: segments ≥ MIN_K go to Block 3 (`unpaired_subreads`),
-/// and if no segment is ≥ MIN_K, the read is preserved in `sidecar` for consensus polishing.
-#[inline]
-fn route_unpaired_or_split(
-    trimmed: &[u8],
-    unpaired_subreads: &mut Vec<Vec<u8>>,
-    sidecar: &mut Vec<Vec<u8>>,
-) {
-    if trimmed.is_empty() {
-        return;
-    }
-    let mut any_packed = false;
-    for segment in split_on_n(trimmed) {
-        if segment.len() >= MIN_K {
-            unpaired_subreads.push(segment.to_vec());
-            any_packed = true;
-        }
-    }
-    if !any_packed {
-        sidecar.push(trimmed.to_vec());
+        b3_store.ingest_trimmed_unpaired(t1);
+        b3_store.ingest_trimmed_unpaired(t2);
     }
 }
 

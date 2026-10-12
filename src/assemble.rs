@@ -37,6 +37,7 @@ pub struct AssemblerConfig {
     pub is_sc: bool,
     pub polish: bool,
     pub careful: bool,
+    pub interleaved: bool,
     pub long_reads: Option<Vec<std::path::PathBuf>>,
     pub linked_reads: Option<Vec<std::path::PathBuf>>,
     pub trusted_contigs: Option<Vec<std::path::PathBuf>>,
@@ -59,6 +60,7 @@ impl Default for AssemblerConfig {
             is_sc: false,
             polish: true,
             careful: false,
+            interleaved: false,
             long_reads: None,
             linked_reads: None,
             trusted_contigs: None,
@@ -120,8 +122,9 @@ pub fn run_assembly_with_packed_reads(
     );
 
     println!("─── [Stage 3] Building Solid K-mer Index ───");
-    const NUM_SHARDS: usize = 64;
-    let shards: Vec<std::sync::Mutex<HashMap<Kmer256, u32>>> = (0..NUM_SHARDS)
+    let num_shards = (num_threads * 4).next_power_of_two().clamp(8, 64);
+    let shard_mask = num_shards - 1;
+    let shards: Vec<std::sync::Mutex<HashMap<Kmer256, u32>>> = (0..num_shards)
         .map(|_| std::sync::Mutex::new(HashMap::with_capacity(75_000)))
         .collect();
 
@@ -129,7 +132,7 @@ pub fn run_assembly_with_packed_reads(
         let start = c_idx * chunk_size;
         let end = (start + chunk_size).min(num_reads);
         let mut thread_buffers: Vec<Vec<Kmer256>> =
-            (0..NUM_SHARDS).map(|_| Vec::with_capacity(256)).collect();
+            (0..num_shards).map(|_| Vec::with_capacity(256)).collect();
         let mut buf = Vec::with_capacity(512);
 
         for idx in start..end {
@@ -141,7 +144,7 @@ pub fn run_assembly_with_packed_reads(
                 if let Some(kmer) = Kmer256::from_bytes(&buf[i..i + k], k) {
                     let (can, _) = kmer.canonical(k);
                     if filter.is_solid_kmer256(can) {
-                        let shard_idx = (can.0 as usize) % NUM_SHARDS;
+                        let shard_idx = (can.0 as usize) & shard_mask;
                         thread_buffers[shard_idx].push(can);
                         if thread_buffers[shard_idx].len() >= 256 {
                             let mut guard = shards[shard_idx].lock().unwrap();
@@ -187,6 +190,7 @@ pub fn run_assembly_with_packed_reads(
             "  [Multi-K] Injecting {} prior unitigs as high-confidence backbone paths...",
             priors.len()
         );
+        let prior_boost = (config.min_coverage as u32 * 4).max(50);
         for seq in priors {
             if seq.len() < k {
                 continue;
@@ -194,7 +198,7 @@ pub fn run_assembly_with_packed_reads(
             for i in 0..=(seq.len() - k) {
                 if let Some(kmer) = Kmer256::from_bytes(&seq[i..i + k], k) {
                     let (can, _) = kmer.canonical(k);
-                    *global_counts.entry(can).or_insert(0) += 50;
+                    *global_counts.entry(can).or_insert(0) += prior_boost;
                 }
             }
         }
@@ -333,7 +337,11 @@ pub fn run_assembly_with_packed_reads(
     let scaffolds = if !config.skip_repeat_resolution && packed.is_paired() {
         let paired_info =
             crate::paired_info::PairedInfoIndex::build_from_packed(k, &contigs, packed);
-        crate::scaffold::Scaffolder::default().build_scaffolds(&contigs, &paired_info)
+        crate::scaffold::Scaffolder::default().build_scaffolds_with_reads(
+            &contigs,
+            &paired_info,
+            Some(packed),
+        )
     } else {
         contigs.clone()
     };
@@ -416,7 +424,11 @@ pub fn run_assembly<P: AsRef<Path> + Sync>(
         "─── [Stage 1] Ingesting and packing reads from {} input file(s) ───",
         input_files.len()
     );
-    let packed = crate::packed_reads::PackedReads::from_files(input_files)?;
+    let packed = if config.interleaved && input_files.len() == 1 {
+        crate::packed_reads::PackedReads::from_interleaved_file(&input_files[0])?
+    } else {
+        crate::packed_reads::PackedReads::from_files(input_files)?
+    };
     println!(
         "  Total reads packed: {} ({:.2} MB in RAM)",
         packed.len(),
@@ -526,7 +538,7 @@ pub fn write_contigs_fasta<P: AsRef<Path>>(
 /// Determines the minimum k-mer coverage threshold dynamically using robust noise valley detection.
 fn determine_solid_kmer_cutoff(global_counts: &HashMap<Kmer256, u32>, min_coverage: f64) -> u32 {
     if min_coverage > 5.0 {
-        (min_coverage * 0.2).clamp(2.0, 10.0) as u32
+        (min_coverage * 0.35).max(2.0) as u32
     } else {
         let mut sample_covs: Vec<u32> = global_counts.values().copied().collect();
         if sample_covs.len() > 100 {

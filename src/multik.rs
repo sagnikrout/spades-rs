@@ -21,6 +21,7 @@ pub struct MultiKConfig {
     pub is_sc: bool,
     pub polish: bool,
     pub careful: bool,
+    pub interleaved: bool,
     pub long_reads: Option<Vec<PathBuf>>,
     pub linked_reads: Option<Vec<PathBuf>>,
     pub trusted_contigs: Option<Vec<PathBuf>>,
@@ -41,6 +42,7 @@ impl Default for MultiKConfig {
             is_sc: false,
             polish: true,
             careful: false,
+            interleaved: false,
             long_reads: None,
             linked_reads: None,
             trusted_contigs: None,
@@ -63,7 +65,11 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
         "─── [Multi-K Preload] Ingesting and packing reads from {} input file(s) ───",
         input_files.len()
     );
-    let packed = PackedReads::from_files(input_files)?;
+    let packed = if config.interleaved && input_files.len() == 1 {
+        PackedReads::from_interleaved_file(&input_files[0])?
+    } else {
+        PackedReads::from_files(input_files)?
+    };
     println!(
         "  Total reads packed for Multi-K: {} ({:.2} MB in RAM)",
         packed.len(),
@@ -97,6 +103,7 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
             is_sc: config.is_sc,
             polish: config.polish && is_last_step, // Polish on final assembly
             careful: config.careful && is_last_step,
+            interleaved: config.interleaved,
             long_reads: if is_last_step {
                 config.long_reads.clone()
             } else {

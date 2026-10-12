@@ -47,6 +47,8 @@ impl TwoTierFilter {
         self.is_solid_kmer256(Kmer256(kmer as u128, 0))
     }
 
+    /// Folds a 256-bit k-mer into a 64-bit hash using MurmurHash3 finalizer mixing.
+    /// For `k <= 64`, `kmer.1` is 0 and only `kmer.0` contributes; for `k > 64`, both halves are mixed.
     #[inline(always)]
     fn hash_kmer256(kmer: Kmer256, seed: u64) -> u64 {
         let x0 = (kmer.0 as u64) ^ ((kmer.0 >> 64) as u64);
@@ -59,6 +61,8 @@ impl TwoTierFilter {
         x
     }
 
+    /// Probabilistically observes a `Kmer256`: sets bits in `seen_bits` on first sight and promotes
+    /// to `solid_bits` when all 3 hash positions were already set in `seen_bits` (coverage >= 2).
     #[inline(always)]
     pub fn insert_kmer256(&self, kmer: Kmer256) -> bool {
         let h1 = Self::hash_kmer256(kmer, 0x517cc1b727220a95) as usize % self.size_bits;

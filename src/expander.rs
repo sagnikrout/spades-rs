@@ -81,6 +81,7 @@ impl ExSPAnder {
 
         // Resolve branches using paired-end linkages
         let mut resolved_adj: Vec<Option<(usize, bool)>> = vec![None; n];
+        let mut resolved_branches = 0usize;
 
         for i in 0..n {
             if adj[i].len() == 1 {
@@ -113,14 +114,18 @@ impl ExSPAnder {
                     };
 
                     if ratio >= self.confidence_ratio {
-                        println!(
-                            "    Resolved repeat branch {} -> {:?} (RC: {}, Support: {}, Ratio: {:.1}x)",
-                            i, best_target, best_is_rc, best_support, ratio
-                        );
                         resolved_adj[i] = best_target.map(|t| (t, best_is_rc));
+                        resolved_branches += 1;
                     }
                 }
             }
+        }
+
+        if resolved_branches > 0 {
+            println!(
+                "    Resolved {} repeat junction(s) via paired-end support",
+                resolved_branches
+            );
         }
 
         // Disambiguate incoming repeat collisions:

@@ -105,8 +105,8 @@ fn test_canonical_kmer_u64_idempotence() {
 
 #[test]
 fn test_kmer256_large_k_invariance() {
-    // Test large k-mers spanning across 64-bit boundaries (k = 33, 55, 64, 77, 99, 111, 127, 128)
-    for &k in &[33, 55, 64, 77, 99, 111, 127, 128] {
+    // Test large k-mers spanning across 64-bit boundaries (k = 33, 55, 64, 65, 77, 99, 111, 127, 128)
+    for &k in &[33, 55, 64, 65, 77, 99, 111, 127, 128] {
         let seq: Vec<u8> = (0..k)
             .map(|i| match (i * 13 + 5) % 4 {
                 0 => b'A',

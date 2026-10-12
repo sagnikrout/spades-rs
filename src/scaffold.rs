@@ -178,6 +178,16 @@ impl Scaffolder {
         contigs: &[Unitig],
         paired_info: &PairedInfoIndex,
     ) -> Vec<Unitig> {
+        self.build_scaffolds_with_reads(contigs, paired_info, None)
+    }
+
+    /// Connects contigs into scaffolds across unresolved gaps, using `packed` reads for local gap closure.
+    pub fn build_scaffolds_with_reads(
+        &self,
+        contigs: &[Unitig],
+        paired_info: &PairedInfoIndex,
+        packed: Option<&crate::packed_reads::PackedReads>,
+    ) -> Vec<Unitig> {
         if contigs.len() <= 1 {
             return contigs.to_vec();
         }
@@ -187,6 +197,19 @@ impl Scaffolder {
         let mut scaffolds = Vec::new();
         let mut scaffold_id = 0;
         let gap_closer = LocalGapCloser::default();
+
+        // Decode a bounded pool of candidate reads for local gap closure when packed reads are provided
+        let mut decoded_pool: Vec<Vec<u8>> = Vec::new();
+        if let Some(p_store) = packed {
+            let max_sample = p_store.len().min(4096);
+            decoded_pool.reserve(max_sample);
+            for idx in 0..max_sample {
+                let mut buf = Vec::new();
+                p_store.get_read(idx, &mut buf);
+                decoded_pool.push(buf);
+            }
+        }
+        let candidate_refs: Vec<&[u8]> = decoded_pool.iter().map(|v| v.as_slice()).collect();
 
         for i in 0..n {
             if visited[i] {
@@ -208,7 +231,8 @@ impl Scaffolder {
                 }
 
                 let next_seq = &contigs[next_idx].sequence;
-                if let Some(merged) = gap_closer.close_gap(&current_seq, next_seq, &[]) {
+                if let Some(merged) = gap_closer.close_gap(&current_seq, next_seq, &candidate_refs)
+                {
                     let added_len = merged.len().saturating_sub(current_seq.len());
                     current_cov +=
                         contigs[next_idx].mean_coverage * contigs[next_idx].sequence.len() as f64;

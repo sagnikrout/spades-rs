@@ -26,10 +26,7 @@ pub struct PairedInfoIndex {
 }
 
 impl PairedInfoIndex {
-    /// Builds paired-end connections from paired reads and unitigs.
-    pub fn build(k: usize, unitigs: &[Unitig], reads1: &[Vec<u8>], reads2: &[Vec<u8>]) -> Self {
-        // 1. Build a k-mer to unitig lookup table
-        // kmer -> (unitig_id, offset)
+    fn build_kmer_index(k: usize, unitigs: &[Unitig]) -> HashMap<Kmer256, (usize, usize)> {
         let mut kmer_to_unitig: HashMap<Kmer256, (usize, usize)> =
             HashMap::with_capacity(unitigs.len() * 100);
         for (u_id, u) in unitigs.iter().enumerate() {
@@ -43,56 +40,67 @@ impl PairedInfoIndex {
                 }
             }
         }
+        kmer_to_unitig
+    }
 
-        // Helper to map a read to a unitig
-        let map_read = |seq: &[u8]| -> Option<(usize, usize)> {
-            if seq.len() < k {
-                return None;
-            }
-            // Sample a few k-mers along the read
-            let step = (seq.len() - k).max(1) / 3;
-            for i in (0..=(seq.len() - k)).step_by(step.max(1)) {
-                if let Some(km) = Kmer256::from_bytes(&seq[i..i + k], k) {
-                    let (can, _) = km.canonical(k);
-                    if let Some(&loc) = kmer_to_unitig.get(&can) {
-                        return Some(loc);
-                    }
+    #[inline]
+    fn map_read(
+        seq: &[u8],
+        k: usize,
+        kmer_to_unitig: &HashMap<Kmer256, (usize, usize)>,
+    ) -> Option<(usize, usize)> {
+        if seq.len() < k {
+            return None;
+        }
+        let last_start = seq.len() - k;
+        let step = (last_start / 8).clamp(1, 8);
+        for i in (0..=last_start).step_by(step) {
+            if let Some(km) = Kmer256::from_bytes(&seq[i..i + k], k) {
+                let (can, _) = km.canonical(k);
+                if let Some(&loc) = kmer_to_unitig.get(&can) {
+                    return Some(loc);
                 }
             }
-            None
-        };
+        }
+        if !last_start.is_multiple_of(step) {
+            if let Some(km) = Kmer256::from_bytes(&seq[last_start..last_start + k], k) {
+                let (can, _) = km.canonical(k);
+                if let Some(&loc) = kmer_to_unitig.get(&can) {
+                    return Some(loc);
+                }
+            }
+        }
+        None
+    }
 
-        let num_pairs = reads1.len().min(reads2.len());
-        let pair_indices: Vec<usize> = (0..num_pairs).collect();
-
-        // 2. Map paired reads in parallel chunks
-        #[allow(clippy::type_complexity)]
-        let thread_results: Vec<(Vec<f64>, HashMap<(usize, usize), u32>)> = pair_indices
-            .par_chunks(4096)
-            .map(|chunk| {
-                let mut local_dists = Vec::new();
-                let mut local_links: HashMap<(usize, usize), u32> = HashMap::new();
-                for &i in chunk {
-                    let loc1 = map_read(&reads1[i]);
-                    let loc2 = map_read(&reads2[i]);
-
-                    if let (Some((u1, pos1)), Some((u2, pos2))) = (loc1, loc2) {
-                        if u1 == u2 {
-                            let dist = (pos1 as f64 - pos2 as f64).abs();
-                            if dist > 0.0 && dist < 100_000.0 {
-                                local_dists.push(dist);
-                            }
-                        } else {
-                            *local_links.entry((u1, u2)).or_insert(0) += 1;
-                            *local_links.entry((u2, u1)).or_insert(0) += 1;
-                        }
+    #[inline]
+    fn record_pair_mapping(
+        loc1: Option<(usize, usize)>,
+        loc2: Option<(usize, usize)>,
+        read2_len: usize,
+        local_dists: &mut Vec<f64>,
+        local_links: &mut HashMap<(usize, usize), u32>,
+    ) {
+        if let (Some((u1, pos1)), Some((u2, pos2))) = (loc1, loc2) {
+            if u1 == u2 {
+                let offset_diff = (pos1 as f64 - pos2 as f64).abs();
+                if offset_diff > 0.0 {
+                    let insert_span = offset_diff + read2_len as f64;
+                    if insert_span < 100_000.0 {
+                        local_dists.push(insert_span);
                     }
                 }
-                (local_dists, local_links)
-            })
-            .collect();
+            } else {
+                *local_links.entry((u1, u2)).or_insert(0) += 1;
+                *local_links.entry((u2, u1)).or_insert(0) += 1;
+            }
+        }
+    }
 
-        // 3. Aggregate thread results
+    #[allow(clippy::type_complexity)]
+    fn finalize_from_threads(
+        thread_results: Vec<(Vec<f64>, HashMap<(usize, usize), u32>)>,
+    ) -> Self {
         let mut internal_distances: Vec<f64> = Vec::new();
         let mut links: HashMap<usize, HashMap<usize, PairedLink>> = HashMap::new();
 
@@ -109,7 +117,6 @@ impl PairedInfoIndex {
             }
         }
 
-        // Calculate insert size distribution
         let (mean_insert, stdev) = if !internal_distances.is_empty() {
             let sum: f64 = internal_distances.iter().sum();
             let mean = sum / internal_distances.len() as f64;
@@ -130,45 +137,44 @@ impl PairedInfoIndex {
         }
     }
 
+    /// Builds paired-end connections from paired reads and unitigs.
+    pub fn build(k: usize, unitigs: &[Unitig], reads1: &[Vec<u8>], reads2: &[Vec<u8>]) -> Self {
+        let kmer_to_unitig = Self::build_kmer_index(k, unitigs);
+        let num_pairs = reads1.len().min(reads2.len());
+        let pair_indices: Vec<usize> = (0..num_pairs).collect();
+
+        #[allow(clippy::type_complexity)]
+        let thread_results: Vec<(Vec<f64>, HashMap<(usize, usize), u32>)> = pair_indices
+            .par_chunks(4096)
+            .map(|chunk| {
+                let mut local_dists = Vec::new();
+                let mut local_links: HashMap<(usize, usize), u32> = HashMap::new();
+                for &i in chunk {
+                    let loc1 = Self::map_read(&reads1[i], k, &kmer_to_unitig);
+                    let loc2 = Self::map_read(&reads2[i], k, &kmer_to_unitig);
+                    Self::record_pair_mapping(
+                        loc1,
+                        loc2,
+                        reads2[i].len(),
+                        &mut local_dists,
+                        &mut local_links,
+                    );
+                }
+                (local_dists, local_links)
+            })
+            .collect();
+
+        Self::finalize_from_threads(thread_results)
+    }
+
     /// Builds paired-end connections directly from PackedReads without unpacking vectors.
     pub fn build_from_packed(
         k: usize,
         unitigs: &[Unitig],
         packed: &crate::packed_reads::PackedReads,
     ) -> Self {
-        let mut kmer_to_unitig: HashMap<Kmer256, (usize, usize)> =
-            HashMap::with_capacity(unitigs.len() * 100);
-        for (u_id, u) in unitigs.iter().enumerate() {
-            if u.sequence.len() < k {
-                continue;
-            }
-            for i in 0..=(u.sequence.len() - k) {
-                if let Some(km) = Kmer256::from_bytes(&u.sequence[i..i + k], k) {
-                    let (can, _) = km.canonical(k);
-                    kmer_to_unitig.entry(can).or_insert((u_id, i));
-                }
-            }
-        }
-
-        let map_read = |seq: &[u8]| -> Option<(usize, usize)> {
-            if seq.len() < k {
-                return None;
-            }
-            let step = (seq.len() - k).max(1) / 3;
-            for i in (0..=(seq.len() - k)).step_by(step.max(1)) {
-                if let Some(km) = Kmer256::from_bytes(&seq[i..i + k], k) {
-                    let (can, _) = km.canonical(k);
-                    if let Some(&loc) = kmer_to_unitig.get(&can) {
-                        return Some(loc);
-                    }
-                }
-            }
-            None
-        };
-
-        let n_pairs = packed.pe_count();
-        let remaining = packed.len().saturating_sub(n_pairs);
-        let num_pairs = n_pairs.min(remaining);
+        let kmer_to_unitig = Self::build_kmer_index(k, unitigs);
+        let num_pairs = packed.pe_count();
         let pair_indices: Vec<usize> = (0..num_pairs).collect();
 
         #[allow(clippy::type_complexity)]
@@ -181,63 +187,22 @@ impl PairedInfoIndex {
                 let mut local_links: HashMap<(usize, usize), u32> = HashMap::new();
 
                 for &p in chunk {
-                    let r1_idx = p;
-                    let r2_idx = p + packed.pe_count();
-                    packed.get_read(r1_idx, &mut buf1);
-                    packed.get_read(r2_idx, &mut buf2);
-                    let loc1 = map_read(&buf1);
-                    let loc2 = map_read(&buf2);
-
-                    if let (Some((u1, pos1)), Some((u2, pos2))) = (loc1, loc2) {
-                        if u1 == u2 {
-                            let dist = (pos1 as f64 - pos2 as f64).abs();
-                            if dist > 0.0 && dist < 100_000.0 {
-                                local_dists.push(dist);
-                            }
-                        } else {
-                            *local_links.entry((u1, u2)).or_insert(0) += 1;
-                            *local_links.entry((u2, u1)).or_insert(0) += 1;
-                        }
-                    }
+                    packed.get_pair(p, &mut buf1, &mut buf2);
+                    let loc1 = Self::map_read(&buf1, k, &kmer_to_unitig);
+                    let loc2 = Self::map_read(&buf2, k, &kmer_to_unitig);
+                    Self::record_pair_mapping(
+                        loc1,
+                        loc2,
+                        buf2.len(),
+                        &mut local_dists,
+                        &mut local_links,
+                    );
                 }
                 (local_dists, local_links)
             })
             .collect();
 
-        let mut internal_distances: Vec<f64> = Vec::new();
-        let mut links: HashMap<usize, HashMap<usize, PairedLink>> = HashMap::new();
-
-        for (dists, l_map) in thread_results {
-            internal_distances.extend(dists);
-            for ((u1, u2), cnt) in l_map {
-                let entry = links.entry(u1).or_default();
-                let link = entry.entry(u2).or_insert(PairedLink {
-                    target_unitig: u2,
-                    support_count: 0,
-                    total_distance: 0.0,
-                });
-                link.support_count += cnt;
-            }
-        }
-
-        let (mean_insert, stdev) = if !internal_distances.is_empty() {
-            let sum: f64 = internal_distances.iter().sum();
-            let mean = sum / internal_distances.len() as f64;
-            let variance: f64 = internal_distances
-                .iter()
-                .map(|&d| (d - mean).powi(2))
-                .sum::<f64>()
-                / internal_distances.len() as f64;
-            (mean, variance.sqrt())
-        } else {
-            (300.0, 50.0)
-        };
-
-        Self {
-            mean_insert_size: mean_insert,
-            insert_size_stdev: stdev,
-            links,
-        }
+        Self::finalize_from_threads(thread_results)
     }
 
     /// Queries paired-end support count between unitig u1 and unitig u2.

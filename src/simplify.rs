@@ -75,8 +75,11 @@ impl Simplifier {
             .filter(|u| u.sequence.len() >= self.min_length)
             .collect();
 
-        // Sort by length descending
+        // Sort by length descending and synchronize unitig IDs with slice indices
         final_contigs.sort_by_key(|a| std::cmp::Reverse(a.sequence.len()));
+        for (idx, u) in final_contigs.iter_mut().enumerate() {
+            u.id = idx;
+        }
 
         final_contigs
     }
@@ -96,6 +99,7 @@ impl Simplifier {
     }
 
     /// Filters dead-end tips and sequencing artifacts with length-awareness.
+    /// Structural tip clipping uses `2 * k` (while `self.min_length` is enforced at final output).
     pub fn clip_tips(&self, unitigs: Vec<Unitig>, dynamic_tip_threshold: f64) -> Vec<Unitig> {
         let tip_max_len = 2 * self.k;
         unitigs
@@ -183,8 +187,8 @@ impl Simplifier {
                     continue;
                 }
 
-                // Bubble criteria: length difference within 3k or coverage ratio >= 2.0
-                if len_diff <= 3 * self.k || (best_cov / unitigs[idx].mean_coverage.max(0.1)) >= 2.0
+                // Bubble criteria: length difference within 2*k or coverage ratio >= 2.0
+                if len_diff <= 2 * self.k || (best_cov / unitigs[idx].mean_coverage.max(0.1)) >= 2.0
                 {
                     to_remove.insert(idx);
                 }
@@ -211,7 +215,7 @@ impl Simplifier {
         }
 
         let mut changed = true;
-        let max_rounds = 32;
+        let max_rounds = 32; // Early-exits on convergence when merge_pairs is empty
         let mut round = 0;
 
         while changed && round < max_rounds {

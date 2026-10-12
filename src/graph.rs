@@ -83,33 +83,105 @@ impl CompactedGraph {
             preds
         };
 
+        let extract_maximal_path =
+            |start_ok: OrientedKmer, visited: &mut HashSet<Kmer256>| -> Vec<OrientedKmer> {
+                let mut path: Vec<OrientedKmer> = Vec::new();
+                let mut curr = start_ok;
+
+                while !visited.contains(&curr.kmer) {
+                    visited.insert(curr.kmer);
+                    path.push(curr);
+
+                    let succs = get_successors(curr);
+                    if succs.len() != 1 {
+                        break; // Branch point or dead end
+                    }
+
+                    let (next_ok, _) = succs[0];
+                    if visited.contains(&next_ok.kmer) {
+                        break; // Cycle or visited
+                    }
+
+                    let preds_of_next = get_predecessors(next_ok);
+                    if preds_of_next.len() != 1 {
+                        break; // Merge point
+                    }
+
+                    curr = next_ok;
+                }
+
+                if path.is_empty() {
+                    return path;
+                }
+
+                let mut backward_path: Vec<OrientedKmer> = Vec::new();
+                let mut back_curr = path[0];
+                loop {
+                    let preds = get_predecessors(back_curr);
+                    if preds.len() != 1 {
+                        break;
+                    }
+                    let (prev_ok, _) = preds[0];
+                    if visited.contains(&prev_ok.kmer) {
+                        break;
+                    }
+                    let succs_of_prev = get_successors(prev_ok);
+                    if succs_of_prev.len() != 1 {
+                        break;
+                    }
+                    visited.insert(prev_ok.kmer);
+                    backward_path.push(prev_ok);
+                    back_curr = prev_ok;
+                }
+
+                backward_path.reverse();
+                backward_path.extend(path);
+                backward_path
+            };
+
+        let build_unitig = |id: usize, path: &[OrientedKmer]| -> Unitig {
+            let first_seq = path[0].explicit_seq(k);
+            let mut unitig_bytes = first_seq.to_string(k).into_bytes();
+            let mut total_cov = *kmer_cov.get(&path[0].kmer).unwrap_or(&2) as f64;
+
+            for ok in &path[1..] {
+                let explicit = ok.explicit_seq(k);
+                let last_base = crate::dna::bit2_to_base(explicit.last_base(k));
+                unitig_bytes.push(last_base);
+                total_cov += *kmer_cov.get(&ok.kmer).unwrap_or(&2) as f64;
+            }
+
+            Unitig {
+                id,
+                sequence: unitig_bytes,
+                mean_coverage: total_cov / path.len() as f64,
+                kmers_count: path.len(),
+            }
+        };
+
         let mut visited = HashSet::<Kmer256>::with_capacity(solid_kmers.len());
         let mut unitigs = Vec::new();
         let mut unitig_id = 0;
 
+        // Pass 1: Traverse paths starting preferentially from boundary nodes
         for &kmer in solid_kmers {
             if visited.contains(&kmer) {
                 continue;
             }
 
-            // Test if either orientation is a unitig start (i.e. in-degree != 1 or cycle)
             let mut start_ok = OrientedKmer { kmer, is_rc: false };
             let preds_fwd = get_predecessors(start_ok);
             let preds_rev = get_predecessors(start_ok.twin());
 
-            // If start_ok has pred == 1, but its predecessor has out-degree == 1, we shouldn't start here
-            // unless we can't find a boundary
             if preds_fwd.len() == 1 {
                 let (pred_node, _) = preds_fwd[0];
                 let succs_of_pred = get_successors(pred_node);
                 if succs_of_pred.len() == 1 && !visited.contains(&pred_node.kmer) {
-                    // There is an unvisited predecessor that leads uniquely to this node
-                    // Check if reverse orientation is better
                     if preds_rev.len() == 1 {
                         let (pred_rev_node, _) = preds_rev[0];
                         let succs_of_rev_pred = get_successors(pred_rev_node);
                         if succs_of_rev_pred.len() == 1 && !visited.contains(&pred_rev_node.kmer) {
-                            continue; // In the middle of an unvisited path in both directions
+                            continue; // Interior node of an unvisited path; defer to boundary or Pass 2
                         }
                     } else {
                         start_ok = start_ok.twin();
@@ -117,146 +189,25 @@ impl CompactedGraph {
                 }
             }
 
-            // Traverse forward from start_ok
-            let mut path: Vec<OrientedKmer> = Vec::new();
-            let mut curr = start_ok;
-
-            while !visited.contains(&curr.kmer) {
-                visited.insert(curr.kmer);
-                path.push(curr);
-
-                let succs = get_successors(curr);
-                if succs.len() != 1 {
-                    break; // Branch point or dead end
-                }
-
-                let (next_ok, _) = succs[0];
-                if visited.contains(&next_ok.kmer) {
-                    break; // Cycle or visited
-                }
-
-                let preds_of_next = get_predecessors(next_ok);
-                if preds_of_next.len() != 1 {
-                    break; // Merge point
-                }
-
-                curr = next_ok;
+            let full_path = extract_maximal_path(start_ok, &mut visited);
+            if !full_path.is_empty() {
+                unitigs.push(build_unitig(unitig_id, &full_path));
+                unitig_id += 1;
             }
-
-            if path.is_empty() {
-                continue;
-            }
-
-            // Also check if we can extend backwards from start_ok if in-degree == 1
-            // (e.g. if we started in the middle of a path)
-            let mut backward_path: Vec<OrientedKmer> = Vec::new();
-            let mut back_curr = path[0];
-            loop {
-                let preds = get_predecessors(back_curr);
-                if preds.len() != 1 {
-                    break;
-                }
-                let (prev_ok, _) = preds[0];
-                if visited.contains(&prev_ok.kmer) {
-                    break;
-                }
-                let succs_of_prev = get_successors(prev_ok);
-                if succs_of_prev.len() != 1 {
-                    break;
-                }
-                visited.insert(prev_ok.kmer);
-                backward_path.push(prev_ok);
-                back_curr = prev_ok;
-            }
-
-            // Stitch backward_path (reversed) + path
-            backward_path.reverse();
-            backward_path.extend(path);
-            let full_path = backward_path;
-
-            // Reconstruct full unitig sequence
-            let first_seq = full_path[0].explicit_seq(k);
-            let mut unitig_bytes = first_seq.to_string(k).into_bytes();
-            let mut total_cov = *kmer_cov.get(&full_path[0].kmer).unwrap_or(&1) as f64;
-
-            for ok in &full_path[1..] {
-                let explicit = ok.explicit_seq(k);
-                let last_base = crate::dna::bit2_to_base(explicit.last_base(k));
-                unitig_bytes.push(last_base);
-                total_cov += *kmer_cov.get(&ok.kmer).unwrap_or(&1) as f64;
-            }
-
-            let mean_cov = total_cov / full_path.len() as f64;
-
-            unitigs.push(Unitig {
-                id: unitig_id,
-                sequence: unitig_bytes,
-                mean_coverage: mean_cov,
-                kmers_count: full_path.len(),
-            });
-            unitig_id += 1;
         }
 
-        // Pass 2: Recover isolated cycles (circular viral genomes, plasmids, etc.)
+        // Pass 2: Recover isolated cycles and any remaining unvisited paths
         for &kmer in solid_kmers {
             if visited.contains(&kmer) {
                 continue;
             }
 
             let start_ok = OrientedKmer { kmer, is_rc: false };
-            let mut path: Vec<OrientedKmer> = Vec::new();
-            let mut curr = start_ok;
-
-            while !visited.contains(&curr.kmer) {
-                visited.insert(curr.kmer);
-                path.push(curr);
-
-                let succs = get_successors(curr);
-                if succs.len() != 1 {
-                    break;
-                }
-
-                let (next_ok, _) = succs[0];
-                if next_ok.kmer == start_ok.kmer {
-                    // Closed loop returned to origin
-                    break;
-                }
-                if visited.contains(&next_ok.kmer) {
-                    break;
-                }
-
-                let preds_of_next = get_predecessors(next_ok);
-                if preds_of_next.len() != 1 {
-                    break;
-                }
-
-                curr = next_ok;
+            let full_path = extract_maximal_path(start_ok, &mut visited);
+            if !full_path.is_empty() {
+                unitigs.push(build_unitig(unitig_id, &full_path));
+                unitig_id += 1;
             }
-
-            if path.is_empty() {
-                continue;
-            }
-
-            let first_seq = path[0].explicit_seq(k);
-            let mut unitig_bytes = first_seq.to_string(k).into_bytes();
-            let mut total_cov = *kmer_cov.get(&path[0].kmer).unwrap_or(&1) as f64;
-
-            for ok in &path[1..] {
-                let explicit = ok.explicit_seq(k);
-                let last_base = crate::dna::bit2_to_base(explicit.last_base(k));
-                unitig_bytes.push(last_base);
-                total_cov += *kmer_cov.get(&ok.kmer).unwrap_or(&1) as f64;
-            }
-
-            let mean_cov = total_cov / path.len() as f64;
-
-            unitigs.push(Unitig {
-                id: unitig_id,
-                sequence: unitig_bytes,
-                mean_coverage: mean_cov,
-                kmers_count: path.len(),
-            });
-            unitig_id += 1;
         }
 
         Self { k, unitigs }
