@@ -12,9 +12,13 @@ use crate::graph::Unitig;
 // Module 5.1: plasmidSPAdes Circularity & Copy-Number Extraction
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Detector that isolates circular and high-copy-number plasmid contigs (`plasmidSPAdes` mode).
 pub struct PlasmidDetector {
+    /// $k$-mer size used when checking prefix/suffix circularity overlaps.
     pub k: usize,
+    /// Minimum sequence length (in base pairs) required for a contig to be classified as a plasmid.
     pub min_plasmid_len: usize,
+    /// Minimum coverage ratio relative to the median chromosomal coverage for high-copy plasmid detection.
     pub copy_number_threshold: f64,
 }
 
@@ -96,8 +100,11 @@ pub fn apply_meta_filter(unitigs: Vec<Unitig>, min_len: usize) -> Vec<Unitig> {
 // Module 5.3: rnaSPAdes Transcriptome & Isoform Engine
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Transcriptome isoform filter that preserves alternative splicing paths (`rnaSPAdes` mode).
 pub struct RnaEngine {
+    /// Minimum transcript length (in base pairs) required to retain an assembled isoform.
     pub min_isoform_len: usize,
+    /// Minimum mean $k$-mer coverage required to retain a low-expression transcript isoform.
     pub min_isoform_coverage: f64,
 }
 
@@ -130,7 +137,9 @@ impl RnaEngine {
 // Module 5.4: scSPAdes Single-Cell MDA Amplification Normalizer
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Coverage normalizer for single-cell Multiple Displacement Amplification (MDA) assemblies (`scSPAdes` mode).
 pub struct SingleCellNormalizer {
+    /// Minimum mean coverage threshold required to retain low-coverage dropout regions.
     pub min_coverage_cutoff: f64,
 }
 

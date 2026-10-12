@@ -4,14 +4,20 @@
 
 use crate::graph::Unitig;
 
+/// Topological graph simplifier that clips dead-end tips, pops error bubbles, and stitches linear unitig paths.
 pub struct Simplifier {
+    /// $k$-mer size of the compacted de Bruijn graph (adjacent unitigs overlap by $k - 1$ bases).
     pub k: usize,
+    /// Minimum mean coverage threshold used as the baseline for tip clipping and low-coverage pruning.
     pub min_coverage: f64,
+    /// Minimum sequence length (in base pairs) required for isolated unitigs after simplification.
     pub min_length: usize,
+    /// Preserves alternative splicing bubbles and low-expression transcript tips when enabled (`rnaSPAdes` mode).
     pub is_rna: bool,
 }
 
 impl Simplifier {
+    /// Creates a new [`Simplifier`] for a graph with the given $k$-mer size, coverage cutoff, and minimum contig length.
     pub fn new(k: usize, min_coverage: f64, min_length: usize) -> Self {
         Self {
             k,

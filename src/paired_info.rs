@@ -11,17 +11,22 @@ use rayon::prelude::*;
 /// A paired-end connection between two unitigs supported by read pairs.
 #[derive(Clone, Debug, Default)]
 pub struct PairedLink {
+    /// Index of the destination unitig connected by paired-end reads.
     pub target_unitig: usize,
+    /// Number of paired-end read pairs supporting the connection from the source unitig to `target_unitig`.
     pub support_count: u32,
+    /// Sum of estimated gap distances (in base pairs) across all supporting read pairs.
     pub total_distance: f64,
 }
 
 /// Index of paired-end connections between unitigs.
 #[derive(Default, Debug)]
 pub struct PairedInfoIndex {
+    /// Estimated mean outer insert size (in base pairs) of the paired-end sequencing library.
     pub mean_insert_size: f64,
+    /// Estimated standard deviation of the library insert size (in base pairs).
     pub insert_size_stdev: f64,
-    // Maps source_unitig_id -> (target_unitig_id -> PairedLink)
+    /// Adjacency table mapping `source_unitig_id` to its outgoing `target_unitig_id -> PairedLink` map.
     pub links: HashMap<usize, HashMap<usize, PairedLink>>,
 }
 

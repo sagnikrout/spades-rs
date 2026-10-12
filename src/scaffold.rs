@@ -15,7 +15,9 @@ use hashbrown::HashMap;
 
 /// Bounded local de Bruijn graph gap closer for bridging contig ends.
 pub struct LocalGapCloser {
+    /// $k$-mer size ($k \le 32$) used to build the local micro-assembly graph across a scaffold gap.
     pub k: usize,
+    /// Maximum number of bases to walk when attempting to bridge two contig ends.
     pub max_gap_len: usize,
 }
 
@@ -160,8 +162,11 @@ impl LocalGapCloser {
     }
 }
 
+/// Paired-end scaffolder that orders contigs across gaps and attempts local gap closure.
 pub struct Scaffolder {
+    /// Minimum number of paired-end read links required to join two contigs into a scaffold.
     pub min_links: u32,
+    /// Fallback number of `N` bases inserted when an estimated gap distance is non-positive and local closure fails.
     pub default_gap_len: usize,
 }
 

@@ -9,22 +9,39 @@ use crate::packed_reads::PackedReads;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
+/// Configuration parameters for progressive multi-$k$-mer de novo assembly.
 pub struct MultiKConfig {
+    /// Ordered sequence of odd $k$-mer sizes (e.g. `[21, 33, 55]`) stepped through progressively.
     pub kmers: Vec<usize>,
+    /// Minimum mean $k$-mer coverage required to retain unitigs during graph simplification.
     pub min_coverage: f64,
+    /// Minimum sequence length (in base pairs) required for output contigs and scaffolds.
     pub min_contig_len: usize,
+    /// Bit capacity of each tier of the two-tier Bloom filter used to screen singleton $k$-mers.
     pub bloom_bits: usize,
+    /// Whether to run BayesHammer-style single-base read error correction before graph construction.
     pub error_correct: bool,
+    /// Enables metagenomic assembly mode (`metaSPAdes`).
     pub is_meta: bool,
+    /// Enables plasmid extraction mode (`plasmidSPAdes`).
     pub is_plasmid: bool,
+    /// Enables transcriptome assembly mode (`rnaSPAdes`).
     pub is_rna: bool,
+    /// Enables single-cell MDA assembly mode (`scSPAdes`).
     pub is_sc: bool,
+    /// Whether to run post-assembly read-alignment consensus polishing on the final $k$-mer step.
     pub polish: bool,
+    /// Enables mismatch-intolerant diploid-aware consensus polishing (`--careful`).
     pub careful: bool,
+    /// Indicates that each input FASTQ file contains interleaved forward (`R1`) and reverse (`R2`) mates.
     pub interleaved: bool,
+    /// Optional paths to long-read FASTQ/FASTA files (PacBio or Oxford Nanopore) for hybrid repeat resolution.
     pub long_reads: Option<Vec<PathBuf>>,
+    /// Optional paths to barcoded linked-read FASTQ files (10x Genomics or TELL-Seq) for long-range scaffolding.
     pub linked_reads: Option<Vec<PathBuf>>,
+    /// Optional paths to trusted reference or prior assembly FASTA contigs injected into the graph.
     pub trusted_contigs: Option<Vec<PathBuf>>,
+    /// Optional system memory budget and hardware limits.
     pub memory_limits: Option<crate::memory::MemoryLimits>,
 }
 

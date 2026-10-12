@@ -5,8 +5,11 @@
 use crate::graph::Unitig;
 use crate::paired_info::PairedInfoIndex;
 
+/// Paired-end path extension engine that resolves repetitive branches in the assembly graph.
 pub struct ExSPAnder {
+    /// Minimum number of paired-end read links required to support a candidate successor unitig.
     pub min_support: u32,
+    /// Minimum ratio between the best and second-best candidate scores required to extend a path unambiguously.
     pub confidence_ratio: f64,
 }
 

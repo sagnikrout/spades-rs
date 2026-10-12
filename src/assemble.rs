@@ -16,33 +16,58 @@ use std::time::Instant;
 /// Assembly quality control statistics.
 #[derive(Debug, Clone, Default)]
 pub struct AssemblyStats {
+    /// Total number of assembled contigs passing the minimum length filter.
     pub total_contigs: usize,
+    /// Cumulative length (in base pairs) of all assembled contigs.
     pub total_length: usize,
+    /// Length (in base pairs) of the longest assembled contig.
     pub max_contig_length: usize,
+    /// Sequence length at which 50% of the total assembly length is contained in contigs of at least this size.
     pub n50: usize,
+    /// Minimum number of contigs whose summed length is at least 50% of the total assembly length.
     pub l50: usize,
+    /// Percentage of unambiguous bases (`A`, `C`, `G`, `T`) that are `G` or `C` (0.0 to 100.0).
     pub gc_content: f64,
 }
 
+/// Configuration parameters for a single-$k$ de novo assembly run.
 #[derive(Clone, Debug)]
 pub struct AssemblerConfig {
+    /// Odd $k$-mer size ($15 \le k \le 127$) used for de Bruijn graph construction.
     pub k: usize,
+    /// Minimum mean $k$-mer coverage required to retain unitigs during graph simplification.
     pub min_coverage: f64,
+    /// Minimum sequence length (in base pairs) required for output contigs and scaffolds.
     pub min_contig_len: usize,
+    /// Bit capacity of each tier of the two-tier Bloom filter used to screen singleton $k$-mers.
     pub bloom_bits: usize,
+    /// Whether to run BayesHammer-style single-base read error correction before graph construction.
     pub error_correct: bool,
+    /// Enables metagenomic assembly mode (`metaSPAdes`), preserving low-abundance species contigs.
     pub is_meta: bool,
+    /// Enables plasmid extraction mode (`plasmidSPAdes`), isolating circular and high-copy extrachromosomal contigs.
     pub is_plasmid: bool,
+    /// Enables transcriptome assembly mode (`rnaSPAdes`), preserving alternative splicing isoforms.
     pub is_rna: bool,
+    /// Enables single-cell MDA assembly mode (`scSPAdes`), normalizing extreme amplification spikes and dropouts.
     pub is_sc: bool,
+    /// Whether to run post-assembly read-alignment consensus polishing.
     pub polish: bool,
+    /// Enables mismatch-intolerant diploid-aware consensus polishing (`--careful`).
     pub careful: bool,
+    /// Indicates that each input FASTQ file contains interleaved forward (`R1`) and reverse (`R2`) mates.
     pub interleaved: bool,
+    /// Optional paths to long-read FASTQ/FASTA files (PacBio or Oxford Nanopore) for hybrid repeat resolution.
     pub long_reads: Option<Vec<std::path::PathBuf>>,
+    /// Optional paths to barcoded linked-read FASTQ files (10x Genomics or TELL-Seq) for long-range scaffolding.
     pub linked_reads: Option<Vec<std::path::PathBuf>>,
+    /// Optional paths to trusted reference or prior assembly FASTA contigs injected into the graph.
     pub trusted_contigs: Option<Vec<std::path::PathBuf>>,
+    /// Contigs carried forward from smaller $k$-mer iterations during multi-$k$ assembly.
     pub prior_contigs: Option<Vec<Vec<u8>>>,
+    /// Skips paired-end repeat resolution and scaffolding (used on intermediate multi-$k$ steps).
     pub skip_repeat_resolution: bool,
+    /// Optional system memory budget and hardware limits.
     pub memory_limits: Option<crate::memory::MemoryLimits>,
 }
 
@@ -71,11 +96,17 @@ impl Default for AssemblerConfig {
     }
 }
 
+/// Output contigs, scaffolds, extracted plasmids, and summary statistics from an assembly run.
 pub struct AssemblyResult {
+    /// Assembled contigs sorted by descending sequence length.
     pub contigs: Vec<crate::graph::Unitig>,
+    /// Assembled scaffolds bridged across paired-end gaps, sorted by descending sequence length.
     pub scaffolds: Vec<crate::graph::Unitig>,
+    /// Extrachromosomal plasmid contigs isolated when `is_plasmid` is enabled.
     pub plasmids: Vec<crate::graph::Unitig>,
+    /// Contiguity and composition metrics computed over `contigs`.
     pub stats: AssemblyStats,
+    /// Total wall-clock runtime of the assembly pipeline in seconds.
     pub elapsed_secs: f64,
 }
 

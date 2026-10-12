@@ -21,8 +21,11 @@ pub static ASCII_TO_2BIT: [u8; 256] = {
     table
 };
 
+/// Lookup table mapping a 2-bit DNA value (`0..=3`) to its uppercase ASCII nucleotide (`A`, `C`, `G`, `T`).
 pub static BIT2_TO_ASCII: [u8; 4] = *b"ACGT";
 
+/// Converts an ASCII nucleotide byte (`A`/`a`, `C`/`c`, `G`/`g`, `T`/`t`) to its 2-bit encoding (`0..=3`),
+/// or returns `None` for ambiguous/non-ACGT characters.
 #[inline(always)]
 pub fn base_to_2bit(b: u8) -> Option<u8> {
     let val = ASCII_TO_2BIT[b as usize];
@@ -33,6 +36,7 @@ pub fn base_to_2bit(b: u8) -> Option<u8> {
     }
 }
 
+/// Converts the lowest 2 bits of `val` (`0..=3`) into an uppercase ASCII nucleotide byte (`A`, `C`, `G`, `T`).
 #[inline(always)]
 pub fn bit2_to_base(val: u8) -> u8 {
     BIT2_TO_ASCII[(val & 3) as usize]
@@ -270,6 +274,8 @@ impl Kmer256 {
         String::from_utf8(bytes).unwrap()
     }
 
+    /// Encodes the first `k` ASCII nucleotides of `s` into a 2-bit packed [`Kmer256`],
+    /// returning `None` if `k == 0`, `k > 128`, `s.len() < k`, or any base is not `A`/`C`/`G`/`T`.
     pub fn from_bytes(s: &[u8], k: usize) -> Option<Self> {
         if k == 0 || s.len() < k || k > 128 {
             return None;

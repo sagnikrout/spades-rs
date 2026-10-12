@@ -17,6 +17,7 @@ pub enum PhredEncoding {
 }
 
 impl PhredEncoding {
+    /// Returns the ASCII byte offset (`33` for Phred+33 or `64` for Phred+64) subtracted to obtain the Phred score.
     #[inline(always)]
     pub fn offset(&self) -> u8 {
         match self {
@@ -77,7 +78,9 @@ impl Default for QualityFilterConfig {
 /// A sequencing read accompanied by an optional linked-read barcode (e.g. 10x Genomics or TELL-Seq).
 #[derive(Clone, Debug)]
 pub struct LinkedReadRecord {
+    /// 64-bit encoded or hashed molecular barcode extracted from `BX:Z:`, `BC:Z:`, or `#barcode` header tags.
     pub barcode: Option<u64>,
+    /// Unpacked ASCII nucleotide sequence of the read.
     pub seq: Vec<u8>,
 }
 

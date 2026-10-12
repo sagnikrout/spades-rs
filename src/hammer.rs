@@ -17,11 +17,14 @@ pub fn hamming_distance_2bit(a: u64, b: u64) -> u32 {
     base_diffs.count_ones()
 }
 
+/// BayesHammer-inspired single-nucleotide read error corrector operating against a solid $k$-mer filter.
 pub struct ErrorCorrector {
+    /// $k$-mer size used to test candidate base substitutions against the solid $k$-mer spectrum.
     pub k: usize,
 }
 
 impl ErrorCorrector {
+    /// Creates a new [`ErrorCorrector`] for the given $k$-mer length.
     pub fn new(k: usize) -> Self {
         Self { k }
     }

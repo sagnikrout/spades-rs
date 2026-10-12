@@ -36,6 +36,7 @@ use std::path::Path;
 /// Minimum k-mer size: sub-reads shorter than this cannot produce any valid k-mer.
 const MIN_K: usize = 21;
 
+/// Contiguous 2-bit in-memory read store with synchronized paired-end blocks and an ambiguous-base sidecar.
 #[derive(Clone, Default, Debug)]
 pub struct PackedReads {
     /// Contiguous packed 2-bit bases (4 bases per byte).

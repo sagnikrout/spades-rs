@@ -9,9 +9,13 @@ use hashbrown::HashMap;
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+/// Read-alignment consensus polisher that corrects substitution errors on assembled contigs.
 pub struct Polisher {
+    /// Seed $k$-mer size used to anchor reads onto assembled contigs.
     pub k: usize,
+    /// Minimum read coverage depth at a contig position required to consider a consensus base substitution.
     pub min_coverage_support: u32,
+    /// Enables stricter diploid-aware consensus voting (`--careful`) with multi-seed verification.
     pub careful: bool,
 }
 

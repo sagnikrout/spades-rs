@@ -12,11 +12,14 @@ use hashbrown::{HashMap, HashSet};
 /// An oriented k-mer in the bidirected de Bruijn graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct OrientedKmer {
-    pub kmer: Kmer256, // Canonical k-mer
-    pub is_rc: bool,   // false = Forward, true = Reverse Complement
+    /// Canonical (lexicographically smaller of forward and reverse-complement) packed $k$-mer.
+    pub kmer: Kmer256,
+    /// Orientation flag: `false` for forward (`kmer`), `true` for reverse-complement (`kmer.revcomp(k)`).
+    pub is_rc: bool,
 }
 
 impl OrientedKmer {
+    /// Returns the explicit 2-bit $k$-mer sequence in its current orientation.
     #[inline(always)]
     pub fn explicit_seq(&self, k: usize) -> Kmer256 {
         if !self.is_rc {
@@ -26,6 +29,7 @@ impl OrientedKmer {
         }
     }
 
+    /// Returns the opposite-strand twin of this oriented $k$-mer (same canonical $k$-mer with flipped `is_rc`).
     #[inline(always)]
     pub fn twin(&self) -> Self {
         Self {
@@ -38,14 +42,21 @@ impl OrientedKmer {
 /// A maximal non-branching path of oriented k-mers.
 #[derive(Clone, Debug)]
 pub struct Unitig {
+    /// Unique numeric identifier of the unitig or contig within the current graph.
     pub id: usize,
+    /// Spelled ASCII nucleotide sequence (`A`, `C`, `G`, `T`, or `N` in scaffold gaps).
     pub sequence: Vec<u8>,
+    /// Mean $k$-mer multiplicity (coverage depth) across the unitig.
     pub mean_coverage: f64,
+    /// Total number of $k$-mers compacted into this unitig.
     pub kmers_count: usize,
 }
 
+/// Bidirected compacted de Bruijn graph represented as a collection of maximal [`Unitig`]s.
 pub struct CompactedGraph {
+    /// $k$-mer size used to construct the graph.
     pub k: usize,
+    /// Maximal non-branching unitigs extracted from the graph.
     pub unitigs: Vec<Unitig>,
 }
 

@@ -21,42 +21,62 @@ use std::path::{Path, PathBuf};
 /// Assembly statistics across standardized QUAST-compatible length thresholds.
 #[derive(Default, Clone, Debug)]
 pub struct LengthBinStats {
+    /// Minimum contig length threshold (in base pairs) for this bin.
     pub min_len: usize,
+    /// Number of contigs with length $\ge$ `min_len`.
     pub count: usize,
+    /// Total base pairs contained in contigs with length $\ge$ `min_len`.
     pub total_bp: usize,
 }
 
 /// Comprehensive assembly evaluation metrics.
 #[derive(Default, Clone, Debug)]
 pub struct AssemblyMetrics {
+    /// Path to the evaluated contigs/scaffolds FASTA file.
     pub contigs_file: String,
+    /// Total number of evaluated contigs passing the minimum length cutoff.
     pub total_contigs: usize,
+    /// Cumulative length (in base pairs) of all evaluated contigs.
     pub total_length: usize,
+    /// Length (in base pairs) of the largest evaluated contig.
     pub max_contig_length: usize,
+    /// Percentage of unambiguous bases (`A`, `C`, `G`, `T`) that are `G` or `C` (0.0 to 100.0).
     pub gc_content_pct: f64,
+    /// Total number of ambiguous/gap `N` bases across all evaluated contigs.
     pub total_ns: usize,
+    /// Average number of `N` bases per 100 kilobases of assembled sequence.
     pub ns_per_100kbp: f64,
 
-    // Contiguity
+    /// Contig length at the 50% cumulative assembly length threshold.
     pub n50: usize,
+    /// Minimum number of contigs covering at least 50% of the total assembly length.
     pub l50: usize,
+    /// Contig length at the 75% cumulative assembly length threshold.
     pub n75: usize,
+    /// Minimum number of contigs covering at least 75% of the total assembly length.
     pub l75: usize,
+    /// Contig length at the 90% cumulative assembly length threshold.
     pub n90: usize,
+    /// Minimum number of contigs covering at least 90% of the total assembly length.
     pub l90: usize,
 
-    // Size bins
+    /// Contig counts and cumulative lengths across standardized length thresholds.
     pub bins: Vec<LengthBinStats>,
 
-    // Reference comparison (optional)
+    /// Optional path to the reference genome FASTA file used for comparison.
     pub reference_file: Option<String>,
+    /// Total length (in base pairs) of the reference genome, if provided.
     pub reference_length: Option<usize>,
+    /// Percentage of reference genome canonical $k$-mers covered by the assembly.
     pub genome_fraction_pct: Option<f64>,
+    /// Ratio of assembled $k$-mer instances to unique shared reference $k$-mers.
     pub duplication_ratio: Option<f64>,
+    /// Estimated single-nucleotide mismatch rate per 100 kilobases against the reference genome.
     pub mismatches_per_100kbp: Option<f64>,
 }
 
 impl AssemblyMetrics {
+    /// Serializes the assembly evaluation metrics into a formatted JSON string.
     pub fn to_json(&self) -> String {
         let bins_json: Vec<String> = self
             .bins
@@ -126,6 +146,7 @@ impl AssemblyMetrics {
         )
     }
 
+    /// Prints a formatted human-readable evaluation table to standard output.
     pub fn print_summary(&self) {
         println!("============================================================");
         println!("           STAGE 5: ASSEMBLY EVALUATION SUMMARY             ");

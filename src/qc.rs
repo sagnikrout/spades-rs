@@ -18,25 +18,32 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::Path;
 
-/// Standard known adapter sequences.
+/// Standard Illumina TruSeq Universal Read 1 (`R1`) 3' adapter sequence.
 pub const ADAPTER_ILLUMINA_TRUSEQ_R1: &[u8] = b"AGATCGGAAGAGCACACGTCTGAACTCCAGTCA";
+/// Standard Illumina TruSeq Universal Read 2 (`R2`) 3' adapter sequence.
 pub const ADAPTER_ILLUMINA_TRUSEQ_R2: &[u8] = b"AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT";
+/// Standard Illumina Nextera transposase 3' adapter sequence.
 pub const ADAPTER_NEXTERA: &[u8] = b"CTGTCTCTTATACACATCT";
 
 /// A single FASTQ record.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FastqRecord {
+    /// FASTQ record identifier line (without the leading `@` or trailing newline).
     pub id: Vec<u8>,
+    /// Unpacked ASCII nucleotide sequence (`A`, `C`, `G`, `T`, `N`).
     pub seq: Vec<u8>,
+    /// ASCII-encoded Phred quality string of the same length as `seq`.
     pub qual: Vec<u8>,
 }
 
 impl FastqRecord {
+    /// Returns the length of the read sequence in base pairs.
     #[inline]
     pub fn len(&self) -> usize {
         self.seq.len()
     }
 
+    /// Returns `true` if the read sequence contains zero bases.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.seq.is_empty()
@@ -94,29 +101,47 @@ impl Default for QcConfig {
 /// Statistics collected before and after quality control filtering.
 #[derive(Default, Clone, Debug)]
 pub struct QcReport {
+    /// Total number of raw input reads inspected before filtering.
     pub raw_reads: usize,
+    /// Total number of raw input bases inspected before filtering.
     pub raw_bases: usize,
+    /// Number of raw input bases with Phred quality score $\ge 20$ (99% base call accuracy).
     pub raw_q20_bases: usize,
+    /// Number of raw input bases with Phred quality score $\ge 30$ (99.9% base call accuracy).
     pub raw_q30_bases: usize,
+    /// Number of raw input `G` or `C` bases.
     pub raw_gc_bases: usize,
 
+    /// Total number of reads surviving all quality, length, and ambiguity filters.
     pub clean_reads: usize,
+    /// Total number of bases in surviving clean reads after trimming.
     pub clean_bases: usize,
+    /// Number of surviving clean bases with Phred quality score $\ge 20$.
     pub clean_q20_bases: usize,
+    /// Number of surviving clean bases with Phred quality score $\ge 30$.
     pub clean_q30_bases: usize,
+    /// Number of `G` or `C` bases in surviving clean reads.
     pub clean_gc_bases: usize,
 
+    /// Number of reads from which a 3' adapter sequence was trimmed.
     pub adapter_trimmed_reads: usize,
+    /// Number of reads from which a trailing poly-G artifact tail was trimmed.
     pub poly_g_trimmed_reads: usize,
+    /// Number of reads shortened by 5'/3' or sliding-window quality trimming.
     pub quality_trimmed_reads: usize,
+    /// Number of reads discarded because their post-trimming length fell below `min_length`.
     pub dropped_too_short: usize,
+    /// Number of reads discarded because their ambiguous `N` count exceeded `max_ns`.
     pub dropped_too_many_ns: usize,
+    /// Number of reads discarded due to low mean quality.
     pub dropped_low_quality: usize,
 
+    /// Human-readable label of the detected or overridden Phred encoding (`"Phred+33"` or `"Phred+64"`).
     pub detected_phred: String,
 }
 
 impl QcReport {
+    /// Returns the percentage of raw input bases with Phred quality $\ge 20$.
     pub fn raw_q20_pct(&self) -> f64 {
         if self.raw_bases == 0 {
             0.0
@@ -125,6 +150,7 @@ impl QcReport {
         }
     }
 
+    /// Returns the percentage of raw input bases with Phred quality $\ge 30$.
     pub fn raw_q30_pct(&self) -> f64 {
         if self.raw_bases == 0 {
             0.0
@@ -133,6 +159,7 @@ impl QcReport {
         }
     }
 
+    /// Returns the GC content percentage of the raw input reads.
     pub fn raw_gc_pct(&self) -> f64 {
         if self.raw_bases == 0 {
             0.0
@@ -141,6 +168,7 @@ impl QcReport {
         }
     }
 
+    /// Returns the percentage of clean surviving bases with Phred quality $\ge 20$.
     pub fn clean_q20_pct(&self) -> f64 {
         if self.clean_bases == 0 {
             0.0
@@ -149,6 +177,7 @@ impl QcReport {
         }
     }
 
+    /// Returns the percentage of clean surviving bases with Phred quality $\ge 30$.
     pub fn clean_q30_pct(&self) -> f64 {
         if self.clean_bases == 0 {
             0.0
@@ -157,6 +186,7 @@ impl QcReport {
         }
     }
 
+    /// Returns the GC content percentage of the clean surviving reads.
     pub fn clean_gc_pct(&self) -> f64 {
         if self.clean_bases == 0 {
             0.0
@@ -165,6 +195,7 @@ impl QcReport {
         }
     }
 
+    /// Returns the percentage of raw input reads that survived all QC filters.
     pub fn survival_rate_pct(&self) -> f64 {
         if self.raw_reads == 0 {
             0.0
@@ -173,6 +204,7 @@ impl QcReport {
         }
     }
 
+    /// Serializes the quality control report into a formatted JSON string.
     pub fn to_json(&self) -> String {
         format!(
             "{{\n  \
@@ -222,6 +254,7 @@ impl QcReport {
         )
     }
 
+    /// Prints a formatted human-readable QC summary table to standard output.
     pub fn print_summary(&self) {
         println!("============================================================");
         println!("           STAGE 2: READ PREPROCESSING & QC SUMMARY         ");

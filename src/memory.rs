@@ -6,11 +6,16 @@
 
 use std::fs;
 
+/// System memory hardware profile and configured assembly RAM budget.
 #[derive(Debug, Clone, Copy)]
 pub struct MemoryLimits {
+    /// Total physical RAM installed on the host system, in bytes.
     pub total_system_bytes: usize,
+    /// Currently available (free + reclaimable cache) physical RAM on the host system, in bytes.
     pub available_system_bytes: usize,
+    /// Maximum memory budget allocated to the assembly run, in bytes.
     pub max_budget_bytes: usize,
+    /// Whether `max_budget_bytes` was explicitly overridden by the user (`--max-memory`).
     pub is_user_specified: bool,
 }
 
@@ -41,14 +46,17 @@ impl MemoryLimits {
         }
     }
 
+    /// Returns the configured maximum memory budget in gigabytes (GiB).
     pub fn budget_gb(&self) -> f64 {
         self.max_budget_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
     }
 
+    /// Returns the detected available system memory in gigabytes (GiB).
     pub fn available_gb(&self) -> f64 {
         self.available_system_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
     }
 
+    /// Returns the total installed system memory in gigabytes (GiB).
     pub fn total_gb(&self) -> f64 {
         self.total_system_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
     }

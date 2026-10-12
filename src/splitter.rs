@@ -32,6 +32,7 @@ impl Default for LinkedReadResolver {
 }
 
 impl LinkedReadResolver {
+    /// Creates a new [`LinkedReadResolver`] with the specified anchoring $k$-mer size and default barcode thresholds.
     pub fn new(k: usize) -> Self {
         Self {
             k,
