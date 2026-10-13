@@ -346,13 +346,27 @@ fn main() -> anyhow::Result<()> {
             }
 
             let mate_pairs = match (mp1_1, mp1_2) {
-                (Some(m1), Some(m2)) => Some((m1, m2)),
+                (Some(m1), Some(m2)) => {
+                    if m1 == m2 {
+                        anyhow::bail!(
+                            "Forward (--mp1-1) and reverse (--mp1-2) mate-pair files cannot be identical: {}",
+                            m1.display()
+                        );
+                    }
+                    Some((m1, m2))
+                }
                 _ => None,
             };
 
             let mut all_inputs = Vec::new();
             match (pe1_1, pe1_2) {
                 (Some(r1), Some(r2)) => {
+                    if r1 == r2 {
+                        anyhow::bail!(
+                            "Forward (-1 / --pe1-1) and reverse (-2 / --pe1-2) files cannot be identical: {}",
+                            r1.display()
+                        );
+                    }
                     all_inputs.push(r1);
                     all_inputs.push(r2);
                 }

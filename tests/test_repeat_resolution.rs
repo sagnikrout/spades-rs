@@ -301,3 +301,110 @@ fn test_mate_pair_pass2_scaffolding() {
     assert!(scaffolds[0].sequence.starts_with(&[b'A'; 500]));
     assert!(scaffolds[0].sequence.ends_with(&[b'C'; 500]));
 }
+
+#[test]
+fn test_scaffolder_bifurcation_ambiguity_rejection() {
+    use spades_rs::scaffold::Scaffolder;
+
+    let u0 = Unitig {
+        id: 0,
+        sequence: vec![b'A'; 200],
+        mean_coverage: 20.0,
+        kmers_count: 180,
+    };
+    let u1 = Unitig {
+        id: 1,
+        sequence: vec![b'C'; 200],
+        mean_coverage: 20.0,
+        kmers_count: 180,
+    };
+    let u2 = Unitig {
+        id: 2,
+        sequence: vec![b'G'; 200],
+        mean_coverage: 20.0,
+        kmers_count: 180,
+    };
+
+    // Ambiguous fork: Contig 0 links to Contig 1 with support 10, and Contig 2 with support 9 (ratio 1.11 < 1.25)
+    let mut links = HashMap::new();
+    let mut links_0 = HashMap::new();
+    links_0.insert(
+        1,
+        PairedLink {
+            target_unitig: 1,
+            support_count: 10,
+            total_distance: 5000.0,
+        },
+    );
+    links_0.insert(
+        2,
+        PairedLink {
+            target_unitig: 2,
+            support_count: 9,
+            total_distance: 5000.0,
+        },
+    );
+    links.insert(0, links_0);
+
+    let paired_info = PairedInfoIndex {
+        mean_insert_size: 500.0,
+        insert_size_stdev: 50.0,
+        links,
+    };
+
+    let scaffolder = Scaffolder::default();
+    let scaffolds = scaffolder.build_scaffolds(&[u0, u1, u2], &paired_info);
+
+    // Because the bifurcation is ambiguous, it must not guess blindly; all 3 should remain separate
+    assert_eq!(
+        scaffolds.len(),
+        3,
+        "Ambiguous repeat fork must not be merged"
+    );
+}
+
+#[test]
+fn test_paired_info_mate_pair_large_insert_estimation() {
+    let k = 21;
+    // Single non-repetitive contig of 15,000 bp
+    let mut contig_seq = Vec::with_capacity(15_000);
+    let mut s = 42u64;
+    for _ in 0..15_000 {
+        s = s.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let b = match (s >> 32) % 4 {
+            0 => b'A',
+            1 => b'C',
+            2 => b'G',
+            _ => b'T',
+        };
+        contig_seq.push(b);
+    }
+
+    let u0 = Unitig {
+        id: 0,
+        sequence: contig_seq.clone(),
+        mean_coverage: 30.0,
+        kmers_count: 15_000 - k + 1,
+    };
+
+    // Synthesize mate-pair reads mapping at pos 2,000 and pos 7,000 (insert span = 5,000 bp + read len = 5,100 bp)
+    let read_len = 100;
+    let mut r1_list = Vec::new();
+    let mut r2_list = Vec::new();
+
+    for offset in (0..1000).step_by(100) {
+        let p1 = 2000 + offset;
+        let p2 = 7000 + offset;
+        r1_list.push(contig_seq[p1..p1 + read_len].to_vec());
+        r2_list.push(contig_seq[p2..p2 + read_len].to_vec());
+    }
+
+    let paired_info = PairedInfoIndex::build(k, &[u0], &r1_list, &r2_list);
+
+    // Estimated insert size should be near 5,100 bp, not the default 300 bp fallback
+    assert!(
+        paired_info.mean_insert_size > 4500.0 && paired_info.mean_insert_size < 5500.0,
+        "Expected mate-pair insert size ~5,100 bp, got {:.1} bp",
+        paired_info.mean_insert_size
+    );
+}

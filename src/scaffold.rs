@@ -296,18 +296,35 @@ impl Scaffolder {
         visited: &[bool],
         paired_info: &PairedInfoIndex,
     ) -> Option<(usize, u32)> {
-        let mut best = None;
-        let mut max_support = 0;
+        let mut candidates: Vec<(usize, u32)> = Vec::new();
 
         if let Some(targets) = paired_info.links.get(&curr) {
             for (&target, link) in targets {
-                if target < visited.len() && !visited[target] && link.support_count > max_support {
-                    max_support = link.support_count;
-                    best = Some((target, link.support_count));
+                if target < visited.len() && !visited[target] && link.support_count > 0 {
+                    candidates.push((target, link.support_count));
                 }
             }
         }
-        best
+
+        if candidates.is_empty() {
+            return None;
+        }
+
+        // Sort descending by support count, breaking ties deterministically by lowest target index
+        candidates.sort_unstable_by_key(|&(target, support)| (std::cmp::Reverse(support), target));
+
+        // Bifurcation safety: if top 2 candidates have nearly identical support (ratio < 1.25),
+        // do not guess blindly into an ambiguous repeat branch
+        if candidates.len() > 1 {
+            let (top_target, top_sup) = candidates[0];
+            let (_, second_sup) = candidates[1];
+            if second_sup > 0 && (top_sup as f64 / second_sup as f64) < 1.25 {
+                return None; // Ambiguous fork
+            }
+            return Some((top_target, top_sup));
+        }
+
+        Some(candidates[0])
     }
 }
 

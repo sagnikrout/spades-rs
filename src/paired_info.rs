@@ -108,7 +108,7 @@ impl PairedInfoIndex {
                 let offset_diff = (pos1 as f64 - pos2 as f64).abs();
                 if offset_diff > 0.0 {
                     let insert_span = offset_diff + read2_len as f64;
-                    if insert_span <= 2_000.0 {
+                    if insert_span <= 30_000.0 {
                         local_dists.push(insert_span);
                     }
                 }
@@ -140,14 +140,28 @@ impl PairedInfoIndex {
         }
 
         let (mean_insert, stdev) = if !internal_distances.is_empty() {
-            let sum: f64 = internal_distances.iter().sum();
-            let mean = sum / internal_distances.len() as f64;
-            let variance: f64 = internal_distances
-                .iter()
-                .map(|&d| (d - mean).powi(2))
-                .sum::<f64>()
-                / internal_distances.len() as f64;
-            (mean, variance.sqrt())
+            internal_distances.sort_by(|a, b| a.total_cmp(b));
+            let median = internal_distances[internal_distances.len() / 2];
+            let min_valid = (median * 0.2).max(50.0);
+            let max_valid = (median * 3.0).min(30_000.0);
+
+            let filtered_dists: Vec<f64> = internal_distances
+                .into_iter()
+                .filter(|&d| d >= min_valid && d <= max_valid)
+                .collect();
+
+            if !filtered_dists.is_empty() {
+                let sum: f64 = filtered_dists.iter().sum();
+                let mean = sum / filtered_dists.len() as f64;
+                let variance: f64 = filtered_dists
+                    .iter()
+                    .map(|&d| (d - mean).powi(2))
+                    .sum::<f64>()
+                    / filtered_dists.len() as f64;
+                (mean, variance.sqrt())
+            } else {
+                (median, 50.0)
+            }
         } else {
             (300.0, 50.0) // Default typical Illumina insert size
         };
