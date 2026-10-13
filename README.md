@@ -281,7 +281,7 @@ The repository includes both native Rust tests and a real-world scenario validat
 cargo test --release
 ```
 
-Includes 86 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, Stage 2 QC trimming, Stage 5 QUAST evaluation, dipSPAdes allele phasing, mate-pair scaffolding, and module workflows.
+Includes 88 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, Stage 2 QC trimming, Stage 5 QUAST evaluation, dipSPAdes allele phasing, mate-pair scaffolding, and module workflows.
 
 ### Biological and real-world benchmark performance
 
