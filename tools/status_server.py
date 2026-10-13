@@ -7,7 +7,7 @@ import glob
 import re
 
 PORT = 8999
-ROOT = "/mnt/c/Users/sagni/Documents/antigravity/intelligent-pascal"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOG_DIR = os.path.join(ROOT, "test_e2e_out", "logs")
 
 TOTAL_STEPS = 20

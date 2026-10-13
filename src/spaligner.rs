@@ -366,7 +366,9 @@ impl LongReadResolver {
             for cfg in obs {
                 *counts.entry(cfg).or_insert(0) += 1;
             }
-            let (best_cfg, sup) = counts.into_iter().max_by_key(|&(_, c)| c).unwrap();
+            let Some((best_cfg, sup)) = counts.into_iter().max_by_key(|&(_, c)| c) else {
+                continue;
+            };
 
             // For larger graphs, enforce dominant orientation consistency >= 70%
             if unitigs.len() > 10 && (sup as f64) / (obs.len() as f64) < 0.70 {

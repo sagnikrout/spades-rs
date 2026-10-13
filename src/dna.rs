@@ -198,13 +198,14 @@ impl Kmer256 {
         if k == 0 || k > 128 {
             return Self::ZERO;
         }
+        let b2 = (b & 3) as u128;
         if k <= 64 {
             let mask = if k == 64 {
                 u128::MAX
             } else {
                 (1u128 << (2 * k)) - 1
             };
-            Kmer256(((self.0 << 2) | (b as u128)) & mask, 0)
+            Kmer256(((self.0 << 2) | b2) & mask, 0)
         } else {
             let k2 = k - 64;
             let mask_hi = if k2 == 64 {
@@ -214,7 +215,7 @@ impl Kmer256 {
             };
             let s64 = (self.1 >> (2 * (k2 - 1))) & 3;
             let new_lo = (self.0 << 2) | s64;
-            let new_hi = ((self.1 << 2) | (b as u128)) & mask_hi;
+            let new_hi = ((self.1 << 2) | b2) & mask_hi;
             Kmer256(new_lo, new_hi)
         }
     }
@@ -226,8 +227,9 @@ impl Kmer256 {
         if k == 0 || k > 128 {
             return Self::ZERO;
         }
+        let a2 = (a & 3) as u128;
         if k <= 64 {
-            Kmer256((self.0 >> 2) | ((a as u128) << (2 * (k - 1))), 0)
+            Kmer256((self.0 >> 2) | (a2 << (2 * (k - 1))), 0)
         } else {
             let k2 = k - 64;
             let mask_hi = if k2 == 64 {
@@ -236,7 +238,7 @@ impl Kmer256 {
                 (1u128 << (2 * k2)) - 1
             };
             let s63 = self.0 & 3;
-            let new_lo = (self.0 >> 2) | ((a as u128) << 126);
+            let new_lo = (self.0 >> 2) | (a2 << 126);
             let new_hi = ((self.1 >> 2) | (s63 << (2 * (k2 - 1)))) & mask_hi;
             Kmer256(new_lo, new_hi)
         }

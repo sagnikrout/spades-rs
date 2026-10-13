@@ -31,6 +31,7 @@ use anyhow::{Context, Result};
 use flate2::read::MultiGzDecoder;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
+use std::mem::size_of;
 use std::path::Path;
 
 /// Minimum k-mer size: sub-reads shorter than this cannot produce any valid k-mer.
@@ -70,7 +71,9 @@ impl FastxReader {
         let path = path.as_ref();
         let file = File::open(path).with_context(|| format!("Failed to open file: {:?}", path))?;
 
-        let is_gz = path.extension().is_some_and(|ext| ext == "gz");
+        let is_gz = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"));
         let reader: Box<dyn Read + Send> = if is_gz {
             Box::new(MultiGzDecoder::new(file))
         } else {

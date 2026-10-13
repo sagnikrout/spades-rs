@@ -262,6 +262,11 @@ impl Simplifier {
                     };
 
                     if let Some(matches) = prefix_map.get(&out_kmer) {
+                        // If i has a circular loop back to its own start, do not merge out of the cycle
+                        if matches.contains(&(i, is_rc_i)) {
+                            continue;
+                        }
+
                         let other_matches: Vec<(usize, bool)> =
                             matches.iter().copied().filter(|m| m.0 != i).collect();
                         if other_matches.len() == 1 {
@@ -280,9 +285,16 @@ impl Simplifier {
                             };
 
                             if let Some(in_matches) = suffix_map.get(&j_prefix) {
+                                // If j has a circular loop back to itself, do not merge into it
+                                if in_matches.contains(&(j, is_rc_j)) {
+                                    continue;
+                                }
+
                                 let other_in_matches: Vec<(usize, bool)> =
                                     in_matches.iter().copied().filter(|m| m.0 != j).collect();
-                                if other_in_matches.len() == 1 && other_in_matches[0].0 == i {
+                                if other_in_matches.len() == 1
+                                    && other_in_matches[0] == (i, is_rc_i)
+                                {
                                     merge_pairs.push((i, is_rc_i, j, is_rc_j));
                                     used_as_source.insert(i);
                                     used_as_target.insert(j);

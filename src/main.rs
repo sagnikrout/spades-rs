@@ -60,7 +60,7 @@ enum Commands {
         pe1_s: Option<PathBuf>,
 
         /// File with interleaved paired-end reads (SPAdes --12 option)
-        #[arg(long = "12", value_name = "FILE")]
+        #[arg(long = "12", value_name = "FILE", conflicts_with_all = ["pe1_1", "pe1_2", "pe1_s"])]
         pe1_12: Option<PathBuf>,
 
         /// Output contigs FASTA file
@@ -92,19 +92,19 @@ enum Commands {
         careful: bool,
 
         /// Enable metaSPAdes metagenomics mode for uneven coverage datasets
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["plasmid", "rna", "sc"])]
         meta: bool,
 
         /// Enable plasmidSPAdes mode to extract plasmids into a separate FASTA
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["meta", "rna", "sc"])]
         plasmid: bool,
 
         /// Enable rnaSPAdes mode for transcriptome and alternative splicing isoforms
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["meta", "plasmid", "sc"])]
         rna: bool,
 
         /// Enable scSPAdes mode for single-cell MDA coverage normalization
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["meta", "plasmid", "rna"])]
         sc: bool,
 
         /// Disable consensus base polishing
@@ -363,6 +363,21 @@ fn main() -> anyhow::Result<()> {
                 );
             }
 
+            if let Some(ref kms) = multik {
+                if kms.is_empty() {
+                    anyhow::bail!("--multik specified but no k-mer values provided");
+                }
+                for window in kms.windows(2) {
+                    if window[0] >= window[1] {
+                        anyhow::bail!(
+                            "Multi-k k-mer list must be strictly increasing: found {} followed by {}",
+                            window[0],
+                            window[1]
+                        );
+                    }
+                }
+            }
+
             let effective_error_correct = error_correct || careful;
 
             let memory_limits = spades_rs::memory::MemoryLimits::determine(max_memory);
@@ -548,11 +563,23 @@ fn main() -> anyhow::Result<()> {
                     )
                 };
 
+            if let Some(parent) = contig_path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
+            }
+
             write_contigs_fasta(&result.contigs, &contig_path)?;
-            println!("  Contigs successfully exported to: {:?}", contig_path);
+            println!(
+                "  Contigs successfully exported to: {}",
+                contig_path.display()
+            );
 
             write_scaffolds_fasta(&result.scaffolds, &scaffold_path)?;
-            println!("  Scaffolds successfully exported to: {:?}", scaffold_path);
+            println!(
+                "  Scaffolds successfully exported to: {}",
+                scaffold_path.display()
+            );
 
             let effective_final_k = if let Some(ref kmers) = multik {
                 kmers.last().copied().unwrap_or(k)
@@ -561,11 +588,17 @@ fn main() -> anyhow::Result<()> {
             };
 
             spades_rs::gfa::write_graph_gfa(effective_final_k, &result.contigs, &gfa_path)?;
-            println!("  Assembly graph (GFA v1.1) exported to: {:?}", gfa_path);
+            println!(
+                "  Assembly graph (GFA v1.1) exported to: {}",
+                gfa_path.display()
+            );
 
             if plasmid && !result.plasmids.is_empty() {
                 write_contigs_fasta(&result.plasmids, &plasmid_path)?;
-                println!("  Plasmids successfully exported to: {:?}", plasmid_path);
+                println!(
+                    "  Plasmids successfully exported to: {}",
+                    plasmid_path.display()
+                );
             }
 
             // Stage 5: Automatic assembly evaluation summary
@@ -575,10 +608,7 @@ fn main() -> anyhow::Result<()> {
                     eval_metrics.print_summary();
                 }
                 Err(e) => {
-                    eprintln!(
-                        "  [Notice] Assembly evaluation could not be completed: {}",
-                        e
-                    );
+                    eprintln!("  [Notice] Assembly evaluation could not be completed: {e}");
                 }
             }
         }
@@ -667,7 +697,7 @@ fn main() -> anyhow::Result<()> {
 
             if let Some(json_path) = json {
                 std::fs::write(&json_path, report.to_json())?;
-                println!("  QC JSON report saved to: {:?}", json_path);
+                println!("  QC JSON report saved to: {}", json_path.display());
             }
         }
 
@@ -682,7 +712,7 @@ fn main() -> anyhow::Result<()> {
             metrics.print_summary();
             if let Some(json_path) = json {
                 std::fs::write(&json_path, metrics.to_json())?;
-                println!("  Evaluation JSON report saved to: {:?}", json_path);
+                println!("  Evaluation JSON report saved to: {}", json_path.display());
             }
         }
 
@@ -704,8 +734,8 @@ fn main() -> anyhow::Result<()> {
                 careful,
             )?;
             println!(
-                "Consensus polishing completed: {} bases modified. Output saved to: {:?}",
-                corrected, output
+                "Consensus polishing completed: {corrected} bases modified. Output saved to: {}",
+                output.display()
             );
         }
 
@@ -717,14 +747,14 @@ fn main() -> anyhow::Result<()> {
             let r2 = dir.join("ecoli_1K_2.fq.gz");
 
             if !r1.exists() || !r2.exists() {
-                anyhow::bail!("Test files not found in {:?}.", dir);
+                anyhow::bail!("Test files not found in {}.", dir.display());
             }
 
             println!("===========================================================");
             println!("   RUNNING BENCHMARK ON E. COLI 1K TEST DATASET            ");
             println!("===========================================================");
-            println!("  Read 1: {:?}", r1);
-            println!("  Read 2: {:?}", r2);
+            println!("  Read 1: {}", r1.display());
+            println!("  Read 2: {}", r2.display());
             println!("  Active Threads: {}", rayon::current_num_threads());
 
             let config = AssemblerConfig {
@@ -760,7 +790,7 @@ fn main() -> anyhow::Result<()> {
                 "  Max Contig Length:       {} bp",
                 result.stats.max_contig_length
             );
-            println!("  Total Wall-Clock Time:   {:.4} seconds", total_wall);
+            println!("  Total Wall-Clock Time:   {total_wall:.4} seconds");
             println!("===========================================================");
         }
     }

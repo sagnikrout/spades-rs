@@ -86,9 +86,28 @@ impl ExSPAnder {
         let mut resolved_adj: Vec<Option<(usize, bool)>> = vec![None; n];
         let mut resolved_branches = 0usize;
 
+        // Build full graph in-degree table from graph topology
+        let mut graph_in_degree = vec![0usize; n];
+        for succs in &adj {
+            for &(target, _) in succs {
+                graph_in_degree[target] += 1;
+            }
+        }
+
         for i in 0..n {
             if adj[i].len() == 1 {
-                resolved_adj[i] = Some(adj[i][0]);
+                let (target, is_rc) = adj[i][0];
+                if graph_in_degree[target] == 1 {
+                    resolved_adj[i] = Some((target, is_rc));
+                } else {
+                    // Target is a merge knot with multiple incoming paths in the graph.
+                    // Require paired-end support to claim the repeat junction.
+                    let support = paired_info.get_support(i, target);
+                    if support >= self.min_support {
+                        resolved_adj[i] = Some((target, is_rc));
+                        resolved_branches += 1;
+                    }
+                }
             } else if adj[i].len() > 1 {
                 // Repeat knot! Evaluate paired-end support for each candidate
                 let mut best_target = None;
@@ -177,10 +196,16 @@ impl ExSPAnder {
         // If a target node is entered in reverse-complement orientation (via rc(suffix(target))),
         // its physical 3' suffix port is already consumed as an incoming port and cannot also
         // serve as a forward outgoing suffix transition in resolved_adj[target].
-        for target in 0..n {
-            if resolved_adj.contains(&Some((target, true))) {
-                resolved_adj[target] = None;
-            }
+        let rc_targets: hashbrown::HashSet<usize> = resolved_adj
+            .iter()
+            .filter_map(|&adj| match adj {
+                Some((t, true)) => Some(t),
+                _ => None,
+            })
+            .collect();
+
+        for t in rc_targets {
+            resolved_adj[t] = None;
         }
 
         // Compute final in-degrees to identify true path sources

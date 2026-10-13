@@ -37,15 +37,15 @@ struct Cli {
     min_len: usize,
 
     /// Enable read-based consensus base polishing before evaluation
-    #[arg(long)]
+    #[arg(long, requires = "reads")]
     polish: bool,
 
     /// Read files for polishing (comma-separated or multiple flags)
-    #[arg(long = "reads", value_delimiter = ',', num_args = 1..)]
+    #[arg(long = "reads", value_delimiter = ',', num_args = 1.., requires = "polish")]
     reads: Option<Vec<PathBuf>>,
 
     /// Output path for polished contigs FASTA (used when --polish is set)
-    #[arg(short = 'o', long = "output", value_name = "FILE")]
+    #[arg(short = 'o', long = "output", value_name = "FILE", requires = "polish")]
     output: Option<PathBuf>,
 
     /// K-mer size for polishing alignment anchors (odd integer between 11 and 127)

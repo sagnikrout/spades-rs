@@ -59,7 +59,19 @@ impl ErrorCorrector {
                         let orig_upper = orig_base.to_ascii_uppercase();
                         let start_scan = pos.saturating_sub(k - 1);
                         let end_scan = pos.min(scratch.len() - k);
-                        let mut orig_solid: Option<usize> = None;
+
+                        let mut base_solid = 0usize;
+                        for s in start_scan..=end_scan {
+                            if s == i {
+                                continue;
+                            }
+                            if let Some(surr_km) = Kmer256::from_bytes(&scratch[s..s + k], k) {
+                                let (surr_can, _) = surr_km.canonical(k);
+                                if filter.is_solid_kmer256(surr_can) {
+                                    base_solid += 1;
+                                }
+                            }
+                        }
 
                         for &cand_base in b"ACGT" {
                             if cand_base == orig_upper {
@@ -83,25 +95,6 @@ impl ErrorCorrector {
                                             }
                                         }
                                     }
-
-                                    let base_solid = *orig_solid.get_or_insert_with(|| {
-                                        scratch[pos] = orig_base;
-                                        let mut count = 0usize; // s == i is already known non-solid
-                                        for s in start_scan..=end_scan {
-                                            if s == i {
-                                                continue;
-                                            }
-                                            if let Some(surr_km) =
-                                                Kmer256::from_bytes(&scratch[s..s + k], k)
-                                            {
-                                                let (surr_can, _) = surr_km.canonical(k);
-                                                if filter.is_solid_kmer256(surr_can) {
-                                                    count += 1;
-                                                }
-                                            }
-                                        }
-                                        count
-                                    });
 
                                     let gain = solid_count.saturating_sub(base_solid);
                                     if gain > max_solid_gain {

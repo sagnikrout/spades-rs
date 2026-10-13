@@ -73,6 +73,10 @@ pub struct AssemblyMetrics {
     pub duplication_ratio: Option<f64>,
     /// Estimated single-nucleotide mismatch rate per 100 kilobases against the reference genome.
     pub mismatches_per_100kbp: Option<f64>,
+    /// Contig length at 50% cumulative reference genome length threshold, if reference provided.
+    pub ng50: Option<usize>,
+    /// Minimum number of contigs covering at least 50% of reference length, if reference provided.
+    pub lg50: Option<usize>,
 }
 
 impl AssemblyMetrics {
@@ -91,19 +95,25 @@ impl AssemblyMetrics {
 
         let escape_json = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
         let ref_json = if let Some(ref_file) = &self.reference_file {
+            let ng_str = if let (Some(ng50), Some(lg50)) = (self.ng50, self.lg50) {
+                format!(",\n    \"ng50\": {ng50},\n    \"lg50\": {lg50}")
+            } else {
+                String::new()
+            };
             format!(
                 ",\n  \"reference\": {{\n    \
                    \"file\": \"{}\",\n    \
                    \"length\": {},\n    \
                    \"genome_fraction_pct\": {:.2},\n    \
                    \"duplication_ratio\": {:.3},\n    \
-                   \"mismatches_per_100kbp\": {:.2}\n  \
+                   \"mismatches_per_100kbp\": {:.2}{}\n  \
                  }}",
                 escape_json(ref_file),
                 self.reference_length.unwrap_or(0),
                 self.genome_fraction_pct.unwrap_or(0.0),
                 self.duplication_ratio.unwrap_or(1.0),
-                self.mismatches_per_100kbp.unwrap_or(0.0)
+                self.mismatches_per_100kbp.unwrap_or(0.0),
+                ng_str
             )
         } else {
             String::new()
@@ -193,6 +203,12 @@ impl AssemblyMetrics {
                 "  Reference Genome Size:      {:>12} bp",
                 self.reference_length.unwrap_or(0)
             );
+            if let (Some(ng50), Some(lg50)) = (self.ng50, self.lg50) {
+                println!(
+                    "  NG50 / LG50:                {:>10} bp  /  LG50: {}",
+                    ng50, lg50
+                );
+            }
             println!(
                 "  Genome Fraction Covered:    {:>10.2}%",
                 self.genome_fraction_pct.unwrap_or(0.0)
@@ -214,7 +230,9 @@ impl AssemblyMetrics {
 pub fn read_fasta_sequences<P: AsRef<Path>>(path: P) -> Result<Vec<Vec<u8>>> {
     let path = path.as_ref();
     let file = File::open(path).with_context(|| format!("Failed to open file: {:?}", path))?;
-    let is_gz = path.extension().is_some_and(|ext| ext == "gz");
+    let is_gz = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"));
 
     let reader: Box<dyn Read + Send> = if is_gz {
         Box::new(MultiGzDecoder::new(file))
@@ -357,6 +375,8 @@ pub fn evaluate_assembly(
         genome_fraction_pct: None,
         duplication_ratio: None,
         mismatches_per_100kbp: None,
+        ng50: None,
+        lg50: None,
     };
 
     // Reference comparison if provided
@@ -380,9 +400,27 @@ pub fn evaluate_assembly(
         }
         metrics.reference_length = Some(ref_len);
 
+        if ref_len > 0 {
+            let ng_target = ref_len.div_ceil(2);
+            let mut cum_ng = 0usize;
+            let mut calc_ng50 = 0usize;
+            let mut calc_lg50 = 0usize;
+            for (idx, &len) in lengths.iter().enumerate() {
+                cum_ng += len;
+                if cum_ng >= ng_target {
+                    calc_ng50 = len;
+                    calc_lg50 = idx + 1;
+                    break;
+                }
+            }
+            metrics.ng50 = Some(calc_ng50);
+            metrics.lg50 = Some(calc_lg50);
+        }
+
         if ref_len >= k {
             if !lengths.is_empty() {
                 let mut covered_ref_kmers = HashSet::new();
+                let mut total_contig_kmers = 0usize;
                 let mut total_matching_contig_kmers = 0usize;
 
                 for c_seq in &contigs {
@@ -392,6 +430,7 @@ pub fn evaluate_assembly(
                     for i in 0..=(c_seq.len() - k) {
                         if let Some(km) = string_to_kmer(&c_seq[i..i + k], k) {
                             let (can, _) = canonical_kmer_u64(km, k);
+                            total_contig_kmers += 1;
                             if ref_kmers.contains(&can) {
                                 covered_ref_kmers.insert(can);
                                 total_matching_contig_kmers += 1;
@@ -415,14 +454,14 @@ pub fn evaluate_assembly(
                 metrics.genome_fraction_pct = Some(genome_frac);
                 metrics.duplication_ratio = Some(dup_ratio);
 
-                // Estimate substitution mismatch rate: fraction of covered k-mers
-                // with single-base variations
-                let mismatches =
-                    (ref_kmers.len().saturating_sub(covered_ref_kmers.len())).min(total_len / 50);
+                // Estimate substitution mismatch rate: novel contig k-mers divided by k
+                let novel_contig_kmers =
+                    total_contig_kmers.saturating_sub(total_matching_contig_kmers);
+                let est_mismatches = novel_contig_kmers / k;
                 let mismatches_per_100k = if total_len == 0 {
                     0.0
                 } else {
-                    (mismatches as f64 / total_len as f64) * 100_000.0
+                    (est_mismatches as f64 / total_len as f64) * 100_000.0
                 };
                 metrics.mismatches_per_100kbp = Some(mismatches_per_100k);
             } else {

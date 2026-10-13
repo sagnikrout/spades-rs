@@ -165,7 +165,9 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
     let path = path.as_ref();
     let file = File::open(path).with_context(|| format!("Failed to open file: {:?}", path))?;
 
-    let is_gz = path.extension().is_some_and(|ext| ext == "gz");
+    let is_gz = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"));
     let reader: Box<dyn Read + Send> = if is_gz {
         Box::new(MultiGzDecoder::new(file))
     } else {
@@ -206,11 +208,39 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
         // Discard rest of first header line
         buf_reader.read_until(b'\n', &mut header)?;
 
-        // Phred offset: use explicit override if set, otherwise auto-detect from the first
-        // quality line encountered (distinguishes Phred+33 from legacy Phred+64 data).
         let phred_override = filter.and_then(|cfg| cfg.phred_override);
-        let mut phred_offset = phred_override.unwrap_or(PhredEncoding::Phred33).offset();
+        let mut phred_offset = phred_override.map(|p| p.offset()).unwrap_or(33);
         let mut phred_detected = phred_override.is_some();
+        let mut buffered_early_reads: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+        let mut sample_qualities: Vec<u8> = Vec::new();
+
+        let process_record = |seq: &[u8],
+                              qual: &[u8],
+                              offset: u8,
+                              cfg: &QualityFilterConfig,
+                              out: &mut Vec<Vec<u8>>| {
+            if seq.is_empty() {
+                return;
+            }
+            let mut valid_len = seq.len();
+            while valid_len > 0 {
+                let q_char = qual[valid_len - 1];
+                let q_score = q_char.saturating_sub(offset);
+                if q_score >= cfg.min_quality {
+                    break;
+                }
+                valid_len -= 1;
+            }
+            if valid_len >= cfg.min_read_len {
+                let n_count = seq[..valid_len]
+                    .iter()
+                    .filter(|&&b| b == b'N' || b == b'n')
+                    .count();
+                if n_count <= cfg.max_ns {
+                    out.push(seq[..valid_len].to_vec());
+                }
+            }
+        };
 
         loop {
             // Line 2: Sequence
@@ -247,44 +277,24 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
                 );
             }
 
-            // Auto-detect Phred encoding from early reads when no override given
-            if !phred_detected && !qual_buf.is_empty() {
-                // If any character < 59 ('!') appears, it can only be Phred+33; lock immediately
-                if qual_buf.iter().any(|&b| (33..59).contains(&b)) {
-                    phred_offset = 33;
-                    phred_detected = true;
-                } else if qual_buf.iter().any(|&b| b > 74) {
-                    phred_offset = 64;
-                    phred_detected = true;
-                }
-            }
-
-            if !seq_buf.is_empty() {
-                if let Some(cfg) = filter {
-                    // 1. 3' quality score trimming
-                    let mut valid_len = seq_buf.len();
-                    while valid_len > 0 {
-                        let q_char = qual_buf[valid_len - 1];
-                        let q_score = q_char.saturating_sub(phred_offset);
-                        if q_score >= cfg.min_quality {
-                            break;
-                        }
-                        valid_len -= 1;
-                    }
-
-                    // 2. Check remaining length and N base count on trimmed portion
-                    if valid_len >= cfg.min_read_len {
-                        let n_count = seq_buf[..valid_len]
-                            .iter()
-                            .filter(|&&b| b == b'N' || b == b'n')
-                            .count();
-                        if n_count <= cfg.max_ns {
-                            sequences.push(seq_buf[..valid_len].to_vec());
+            if let Some(cfg) = filter {
+                if !phred_detected {
+                    sample_qualities.extend_from_slice(&qual_buf);
+                    buffered_early_reads.push((seq_buf.clone(), qual_buf.clone()));
+                    if qual_buf.iter().any(|&b| (33..59).contains(&b) || b > 74)
+                        || buffered_early_reads.len() >= 1000
+                    {
+                        phred_offset = detect_phred_offset(&sample_qualities).offset();
+                        phred_detected = true;
+                        for (s, q) in buffered_early_reads.drain(..) {
+                            process_record(&s, &q, phred_offset, cfg, &mut sequences);
                         }
                     }
                 } else {
-                    sequences.push(seq_buf.clone());
+                    process_record(&seq_buf, &qual_buf, phred_offset, cfg, &mut sequences);
                 }
+            } else if !seq_buf.is_empty() {
+                sequences.push(seq_buf.clone());
             }
 
             // Read Line 1 (Header) of the next record, skipping blank lines
@@ -308,6 +318,15 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
             }
             if !found_next {
                 break;
+            }
+        }
+
+        if let Some(cfg) = filter {
+            if !phred_detected && !buffered_early_reads.is_empty() {
+                phred_offset = detect_phred_offset(&sample_qualities).offset();
+                for (s, q) in buffered_early_reads.drain(..) {
+                    process_record(&s, &q, phred_offset, cfg, &mut sequences);
+                }
             }
         }
     } else {
@@ -345,7 +364,9 @@ pub fn parse_linked_reads_from_file<P: AsRef<Path>>(path: P) -> Result<Vec<Linke
     let path = path.as_ref();
     let file = File::open(path).with_context(|| format!("Failed to open file: {:?}", path))?;
 
-    let is_gz = path.extension().is_some_and(|ext| ext == "gz");
+    let is_gz = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"));
     let reader: Box<dyn Read + Send> = if is_gz {
         Box::new(MultiGzDecoder::new(file))
     } else {

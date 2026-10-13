@@ -20,8 +20,9 @@ import subprocess
 import shutil
 
 ROOT   = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BIN    = os.path.join(ROOT, "target", "release", "spades-rs")
-EVAL   = os.path.join(ROOT, "target", "release", "spades-eval")
+EXE_EXT = ".exe" if sys.platform == "win32" else ""
+BIN    = os.path.join(ROOT, "target", "release", f"spades-rs{EXE_EXT}")
+EVAL   = os.path.join(ROOT, "target", "release", f"spades-eval{EXE_EXT}")
 QUAST  = os.path.expanduser("~/.local/bin/quast.py")
 DATA   = os.path.join(ROOT, "data")
 OUT    = os.path.join(ROOT, "test_e2e_out")

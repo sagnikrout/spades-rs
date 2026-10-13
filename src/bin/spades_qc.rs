@@ -21,7 +21,7 @@ struct Cli {
     pe1_2: Option<PathBuf>,
 
     /// Single-end reads file (FASTQ / FASTQ.GZ)
-    #[arg(short = 's', long = "single", value_name = "FILE")]
+    #[arg(short = 's', long = "single", value_name = "FILE", conflicts_with_all = ["pe1_1", "pe1_2"])]
     single: Option<PathBuf>,
 
     /// Clean output file for forward reads (or single reads)
@@ -29,11 +29,16 @@ struct Cli {
     out1: Option<PathBuf>,
 
     /// Clean output file for reverse reads
-    #[arg(short = 'O', long = "out2", value_name = "FILE")]
+    #[arg(
+        short = 'O',
+        long = "out2",
+        value_name = "FILE",
+        conflicts_with = "single"
+    )]
     out2: Option<PathBuf>,
 
     /// Output file for surviving unpaired / singleton reads from filtered pairs
-    #[arg(long = "unpaired", value_name = "FILE")]
+    #[arg(long = "unpaired", value_name = "FILE", conflicts_with = "single")]
     unpaired: Option<PathBuf>,
 
     /// Minimum Phred quality threshold for sliding-window trimming

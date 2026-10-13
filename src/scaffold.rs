@@ -39,8 +39,8 @@ impl LocalGapCloser {
         right_seq: &[u8],
         candidate_reads: &[&[u8]],
     ) -> Option<Vec<u8>> {
-        // 1. Check direct prefix/suffix overlap: require at least min(k-1, 4) bp overlap
-        let min_ov = (self.k.saturating_sub(1)).clamp(1, 4);
+        // 1. Check direct prefix/suffix overlap: require at least k - 1 bp overlap
+        let min_ov = (self.k.saturating_sub(1)).max(1);
         let max_ov = self.k.max(31).min(left_seq.len()).min(right_seq.len());
         if max_ov >= min_ov {
             for ov in (min_ov..=max_ov).rev() {
@@ -110,7 +110,7 @@ impl LocalGapCloser {
             (1u64 << (2 * (k - 1))) - 1
         };
 
-        for _ in 0..self.max_gap_len {
+        for _ in 0..=self.max_gap_len {
             if cur == end_kmer {
                 if walked.len() >= k {
                     let insert_len = walked.len() - k;
@@ -126,6 +126,10 @@ impl LocalGapCloser {
                     }
                     return Some(merged);
                 }
+            }
+
+            if walked.len() == self.max_gap_len {
+                break;
             }
 
             let prefix = (cur & mask) << 2;

@@ -165,7 +165,8 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
         crate::memory::trim_memory();
     }
 
-    let mut result = final_result.expect("At least one k-mer must be specified");
+    let mut result =
+        final_result.ok_or_else(|| anyhow::anyhow!("At least one k-mer must be specified"))?;
 
     // Rescue valid unitigs from lower-k steps that were dropped due to higher-k coverage thinning
     if !intermediate_unitigs.is_empty() {

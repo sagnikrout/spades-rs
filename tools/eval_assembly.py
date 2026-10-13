@@ -44,7 +44,7 @@ def compute_n50(lengths, total_length=None):
         cum_sum += l
         if cum_sum >= half_sum:
             return l, idx + 1
-    return lengths[-1], len(lengths)
+    return 0, 0
 
 def evaluate_assembly(contigs_file, ref_file=None, min_len=200):
     _, contigs = parse_fasta(contigs_file)
@@ -73,22 +73,24 @@ def evaluate_assembly(contigs_file, ref_file=None, min_len=200):
     # Reference comparison if provided
     if ref_file and os.path.exists(ref_file):
         _, ref_seqs = parse_fasta(ref_file)
-        full_ref = "".join(ref_seqs)
-        ref_len = len(full_ref)
+        ref_len = sum(len(s) for s in ref_seqs)
         report["Reference length (bp)"] = ref_len
         
-        # Calculate reference k-mer coverage / genome fraction using 31-mers
+        # Calculate reference k-mer coverage / genome fraction using 31-mers per sequence
         k = 31
         tr = str.maketrans("ACGTN", "TGCAN")
         def revcomp(s):
             return s.translate(tr)[::-1]
         
         ref_kmers = set()
-        for i in range(ref_len - k + 1):
-            sub = full_ref[i:i+k]
-            if "N" in sub:
+        for s in ref_seqs:
+            if len(s) < k:
                 continue
-            ref_kmers.add(min(sub, revcomp(sub)))
+            for i in range(len(s) - k + 1):
+                sub = s[i:i+k]
+                if "N" in sub:
+                    continue
+                ref_kmers.add(min(sub, revcomp(sub)))
             
         covered_kmers = set()
         for c in filtered_contigs:

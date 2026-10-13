@@ -52,6 +52,16 @@ pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P
         }
     }
 
+    let inv_strand = |s: char| -> char {
+        if s == '+' {
+            '-'
+        } else {
+            '+'
+        }
+    };
+
+    let mut emitted_links = hashbrown::HashSet::new();
+
     for u_i in unitigs {
         if u_i.sequence.len() < k1 {
             continue;
@@ -60,7 +70,10 @@ pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P
         let suffix_fwd = &u_i.sequence[u_i.sequence.len() - k1..];
         if let Some(targets) = prefix_map.get(suffix_fwd) {
             for &(target_id, target_strand) in targets {
-                if target_id != u_i.id || target_strand == '+' {
+                let link = (u_i.id, '+', target_id, target_strand);
+                let mirror = (target_id, inv_strand(target_strand), u_i.id, '-');
+                if emitted_links.insert(link) {
+                    emitted_links.insert(mirror);
                     writeln!(
                         writer,
                         "L\t{}\t+\t{}\t{}\t{}M",
@@ -74,9 +87,10 @@ pub fn write_graph_gfa<P: AsRef<Path>>(k: usize, unitigs: &[Unitig], out_path: P
         let suffix_rev = crate::dna::revcomp_bytes(&u_i.sequence[..k1]);
         if let Some(targets) = prefix_map.get(&suffix_rev) {
             for &(target_id, target_strand) in targets {
-                // Skip all self-links here: (u_i, '-') -> (u_i, '-') is the mirror of (+, +),
-                // and (u_i, '-') -> (u_i, '+') is a 5' palindromic (k-1)-mer artifact.
-                if target_id != u_i.id {
+                let link = (u_i.id, '-', target_id, target_strand);
+                let mirror = (target_id, inv_strand(target_strand), u_i.id, '+');
+                if emitted_links.insert(link) {
+                    emitted_links.insert(mirror);
                     writeln!(
                         writer,
                         "L\t{}\t-\t{}\t{}\t{}M",

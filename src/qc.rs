@@ -535,7 +535,9 @@ pub fn passes_filter(
 pub fn read_fastq_records<P: AsRef<Path>>(path: P) -> Result<(Vec<FastqRecord>, PhredEncoding)> {
     let path = path.as_ref();
     let file = File::open(path).with_context(|| format!("Failed to open file: {:?}", path))?;
-    let is_gz = path.extension().is_some_and(|ext| ext == "gz");
+    let is_gz = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"));
 
     let reader: Box<dyn Read + Send> = if is_gz {
         Box::new(MultiGzDecoder::new(file))
@@ -586,6 +588,15 @@ pub fn read_fastq_records<P: AsRef<Path>>(path: P) -> Result<(Vec<FastqRecord>, 
             qual.pop();
         }
 
+        if seq.len() != qual.len() {
+            anyhow::bail!(
+                "Malformed FASTQ record '{}': sequence length ({}) does not match quality string length ({})",
+                String::from_utf8_lossy(&header),
+                seq.len(),
+                qual.len()
+            );
+        }
+
         if sample_qualities.len() < 10_000 && !qual.is_empty() {
             sample_qualities.extend_from_slice(&qual);
         }
@@ -610,7 +621,9 @@ pub fn open_fastq_writer<P: AsRef<Path>>(path: P) -> Result<Box<dyn Write>> {
         }
     }
     let file = File::create(path).with_context(|| format!("Failed to create: {:?}", path))?;
-    let is_gz = path.extension().is_some_and(|ext| ext == "gz");
+    let is_gz = path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("gz"));
 
     if is_gz {
         let enc = GzEncoder::new(file, Compression::fast());
