@@ -281,21 +281,27 @@ The repository includes both native Rust tests and a real-world scenario validat
 cargo test --release
 ```
 
-Includes 83 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, Stage 2 QC trimming, Stage 5 QUAST evaluation, dipSPAdes allele phasing, mate-pair scaffolding, and module workflows.
+Includes 86 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, Stage 2 QC trimming, Stage 5 QUAST evaluation, dipSPAdes allele phasing, mate-pair scaffolding, and module workflows.
 
 ### Biological and real-world benchmark performance
 
 Empirical evaluation on an **Intel Core Ultra 9 185H (22 threads, AVX2, 32 GB RAM)** comparing original C++ SPAdes v4.3.0 against `spades-rs` on the flagship *E. coli* MG1655 + Nanopore hybrid dataset:
 
-| Metric | Original C++ SPAdes (v4.3.0) | spades-rs v1.0.0 | spades-rs v1.1.0-alpha.1 | Delta vs Original |
-| :--- | :--- | :--- | :--- | :--- |
-| **Elapsed Wall-Clock** | 961.7 s (~16m 01s) | 256.6 s (~4m 17s) | **250.5 s (~4m 10s)** | **3.84x faster** |
-| **Peak RAM (RSS)** | 5,278.6 MB (5.28 GB) | 2,115.8 MB (2.12 GB) | **2,157.6 MB (2.16 GB)** | **2.45x less memory** |
-| **Scaffold N50 / L50** | ~180,000 bp | 212,344 bp / 7 | **765,577 bp / 3** | **3.6x higher contiguity** |
-| **Largest Scaffold** | 469,088 bp | 811,852 bp | **1,168,939 bp (~1.17 Mb)** | **2.5x larger single piece** |
-| **Mismatches / 100 kbp** | 9.15 (Q40) | 3.78 | **2.54** | **3.6x higher accuracy** |
-| **7 rRNA Operons** | Collapsed / Fragmented | 7 / 7 Bridged | **7 / 7 Bridged (100%)** | **Zero repeat collapse** |
-| **Taxonomic Purity (Zymo)** | N/A | N/A | **99.94%** | **Near-zero chimerism** |
+| Metric | Original C++ SPAdes (v4.3.0) | spades-rs (latest) | Delta vs Original |
+| :--- | :--- | :--- | :--- |
+| **Elapsed Wall-Clock** | 961.7 s (~16m 01s) | **250.5 s (~4m 10s)** | **3.84x faster** |
+| **Peak RAM (RSS)** | 5,278.6 MB (5.28 GB) | **2,157.6 MB (2.16 GB)** | **2.45x less memory** |
+| **Scaffold N50 / L50** | ~180,000 bp | **765,577 bp / 3** | **3.6x higher contiguity** |
+| **Largest Scaffold** | 469,088 bp | **1,168,939 bp (~1.17 Mb)** | **2.5x larger single piece** |
+| **Mismatches / 100 kbp** | 9.15 (Q40) | **2.54** | **3.6x higher accuracy** |
+| **7 rRNA Operons** | Collapsed / Fragmented | **7 / 7 Bridged (100%)** | **Zero repeat collapse** |
+| **Taxonomic Purity (Zymo)** | N/A | **99.94%** | **Near-zero chimerism** |
+
+> [!WARNING]
+> **A Word of Caution on Comparative Benchmarks:**
+> Assembly performance and contiguity metrics depend heavily on library preparation, coverage depth, base-calling error rates, and the repeat architecture of the sequenced organism. While `spades-rs` achieves lower memory overhead and faster runtimes on standard bacterial isolates due to in-memory graph representation and 2-bit read packing, the original C++ SPAdes codebase represents over a decade of algorithmic maturation, extensive community bug-testing, and battle-hardened heuristics refined across tens of thousands of experimental datasets.
+>
+> For clinical diagnostics, novel non-model organisms, complex environmental metagenomes, or regulatory pipelines, assemblies should always be independently validated against orthogonal tools or evaluated with rigorous quality control frameworks (e.g., QUAST, BUSCO, or alignment against close reference genomes). Furthermore, neither assembler is designed for large eukaryotic genomes ($\ge 100\text{ Mb}$ / $\ge 1\text{ Gb}$), which require long-read Overlap-Layout-Consensus tools.
 
 ### Operational scenario validation
 
