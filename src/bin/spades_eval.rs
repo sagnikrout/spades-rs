@@ -19,6 +19,7 @@ fn validate_k(s: &str) -> Result<usize, String> {
 
 #[derive(Parser, Debug)]
 #[command(name = "spades-eval")]
+#[command(version)]
 #[command(about = "Stage 5: QUAST-equivalent Assembly Evaluation & Standalone Polishing")]
 #[command(
     after_help = "Examples:\n  spades-eval contigs.fasta\n  spades-eval contigs.fasta -r reference.fasta --json report.json\n  spades-eval contigs.fasta --polish --reads r1.fq.gz,r2.fq.gz -o polished.fasta"

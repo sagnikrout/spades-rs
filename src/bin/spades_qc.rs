@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(name = "spades-qc")]
+#[command(version)]
 #[command(about = "Stage 2: High-throughput FASTQ Read QC, Adapter Trimming & Preprocessing")]
 #[command(
     after_help = "Examples:\n  spades-qc -1 r1.fq.gz -2 r2.fq.gz -o clean_1.fq.gz -O clean_2.fq.gz\n  spades-qc -s single.fq -o clean_single.fq --min-quality 20 --json qc.json"

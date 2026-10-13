@@ -29,6 +29,7 @@ fn validate_k(s: &str) -> Result<usize, String> {
 
 #[derive(Parser, Debug)]
 #[command(name = "spades-rs")]
+#[command(version)]
 #[command(about = "A Rust-based de novo genome assembler designed for low-memory environments")]
 #[command(
     after_help = "Citations:\n  SPAdes: Bankevich et al. (2012) J Comput Biol 19(5):455-477\n  Protocol: Prjibelski et al. (2020) Curr Protoc Bioinformatics 70(1):e102\n  SpLitteR: Tolstoganov et al. (2024) PeerJ 12:e18050\n  See README.md for full citations & BibTeX entries."
