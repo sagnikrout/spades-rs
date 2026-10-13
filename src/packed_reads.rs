@@ -95,7 +95,18 @@ impl FastxReader {
                     line_buf,
                 });
             }
-            if buf[0].is_ascii_whitespace() {
+            if buf[0] == b'\n' || buf[0] == b'\r' {
+                buf_reader.read_until(b'\n', &mut line_buf)?;
+                line_buf.clear();
+                continue;
+            }
+            let newline_pos = buf.iter().position(|&b| b == b'\n');
+            let check_slice = if let Some(pos) = newline_pos {
+                &buf[..pos]
+            } else {
+                buf
+            };
+            if check_slice.iter().all(|b| b.is_ascii_whitespace()) {
                 buf_reader.read_until(b'\n', &mut line_buf)?;
                 line_buf.clear();
                 continue;

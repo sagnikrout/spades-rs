@@ -55,6 +55,7 @@ fn test_phix174_wgs_public_assembly() {
         .flat_map(|l| l.bytes())
         .collect();
 
+    assert!(!result.contigs.is_empty(), "Assembly produced 0 contigs");
     let primary_contig = &result.contigs[0].sequence;
     assert!(
         primary_contig.len() >= ref_seq.len(),

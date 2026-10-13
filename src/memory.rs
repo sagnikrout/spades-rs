@@ -108,6 +108,37 @@ impl MemoryLimits {
                 }
             }
         }
+        #[cfg(target_os = "windows")]
+        {
+            #[repr(C)]
+            struct ProcessMemoryCounters {
+                cb: u32,
+                page_fault_count: u32,
+                peak_working_set_size: usize,
+                working_set_size: usize,
+                quota_peak_paged_pool_usage: usize,
+                quota_paged_pool_usage: usize,
+                quota_peak_non_paged_pool_usage: usize,
+                quota_non_paged_pool_usage: usize,
+                pagefile_usage: usize,
+                peak_pagefile_usage: usize,
+            }
+            extern "system" {
+                fn GetCurrentProcess() -> isize;
+                fn K32GetProcessMemoryInfo(
+                    process: isize,
+                    counters: *mut ProcessMemoryCounters,
+                    cb: u32,
+                ) -> i32;
+            }
+            unsafe {
+                let mut counters = std::mem::zeroed::<ProcessMemoryCounters>();
+                counters.cb = std::mem::size_of::<ProcessMemoryCounters>() as u32;
+                if K32GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) != 0 {
+                    return counters.working_set_size;
+                }
+            }
+        }
         0
     }
 
@@ -137,8 +168,43 @@ pub fn trim_memory() {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn detect_windows_memory() -> Option<(usize, usize)> {
+    #[repr(C)]
+    struct MemoryStatusEx {
+        length: u32,
+        memory_load: u32,
+        total_phys: u64,
+        avail_phys: u64,
+        total_page_file: u64,
+        avail_page_file: u64,
+        total_virtual: u64,
+        avail_virtual: u64,
+        avail_extended_virtual: u64,
+    }
+    extern "system" {
+        fn GlobalMemoryStatusEx(stat: *mut MemoryStatusEx) -> i32;
+    }
+    unsafe {
+        let mut stat = std::mem::zeroed::<MemoryStatusEx>();
+        stat.length = std::mem::size_of::<MemoryStatusEx>() as u32;
+        if GlobalMemoryStatusEx(&mut stat) != 0 {
+            return Some((stat.total_phys as usize, stat.avail_phys as usize));
+        }
+    }
+    None
+}
+
 fn detect_system_memory() -> (usize, usize) {
-    // 1. Try /proc/meminfo (Linux / WSL)
+    // 1. Try Windows API on Windows
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(mem) = detect_windows_memory() {
+            return mem;
+        }
+    }
+
+    // 2. Try /proc/meminfo (Linux / WSL)
     if let Ok(content) = fs::read_to_string("/proc/meminfo") {
         let mut total_kb = 0;
         let mut avail_kb = 0;
@@ -158,7 +224,7 @@ fn detect_system_memory() -> (usize, usize) {
         }
     }
 
-    // 2. Safe fallback if /proc/meminfo not available (e.g. native Windows / macOS)
+    // 3. Safe fallback if /proc/meminfo not available (e.g. macOS)
     let fallback_total = 16 * 1024 * 1024 * 1024; // 16 GB
     let fallback_avail = 12 * 1024 * 1024 * 1024; // 12 GB
     (fallback_total, fallback_avail)

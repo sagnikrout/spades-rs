@@ -331,24 +331,26 @@ pub fn parse_reads_with_quality<P: AsRef<Path>>(
         }
     } else {
         // FASTA format
-        let mut line = String::with_capacity(1024);
+        let mut line = Vec::with_capacity(1024);
         let mut current_seq = Vec::with_capacity(1024);
 
         // Finish reading remainder of initial header line
-        buf_reader.read_line(&mut line)?;
+        buf_reader.read_until(b'\n', &mut line)?;
 
         loop {
             line.clear();
-            if buf_reader.read_line(&mut line)? == 0 {
+            if buf_reader.read_until(b'\n', &mut line)? == 0 {
                 break;
             }
-            let trimmed = line.trim_end();
-            if trimmed.starts_with('>') {
+            while line.ends_with(b"\n") || line.ends_with(b"\r") {
+                line.pop();
+            }
+            if line.starts_with(b">") {
                 if !current_seq.is_empty() {
                     sequences.push(std::mem::take(&mut current_seq));
                 }
             } else {
-                current_seq.extend_from_slice(trimmed.as_bytes());
+                current_seq.extend_from_slice(&line);
             }
         }
         if !current_seq.is_empty() {

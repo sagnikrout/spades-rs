@@ -142,3 +142,52 @@ impl ErrorCorrector {
         (corrected_reads, total_corrected)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hamming_distance_2bit() {
+        // 0 mismatches
+        assert_eq!(hamming_distance_2bit(0b00011011, 0b00011011), 0);
+        // 1 mismatch in last base
+        assert_eq!(hamming_distance_2bit(0b00011011, 0b00011000), 1);
+        // 4 mismatches across 4 bases
+        assert_eq!(hamming_distance_2bit(0b00000000, 0b01010101), 4);
+    }
+
+    #[test]
+    fn test_correct_read_single_substitution() {
+        let k = 5;
+        let corrector = ErrorCorrector::new(k);
+        let filter = TwoTierFilter::new(1024 * 1024);
+
+        // Populate a clean reference sequence into filter as solid (seen twice)
+        let ref_seq = b"ACGTACGTACGT";
+        for _ in 0..2 {
+            for i in 0..=(ref_seq.len() - k) {
+                if let Some(km) = Kmer256::from_bytes(&ref_seq[i..i + k], k) {
+                    filter.insert_kmer256(km.canonical(k).0);
+                }
+            }
+        }
+
+        // Mutate single base in the middle: 'T' (pos 3) -> 'G'
+        let mut mutated = b"ACGGACGTACGT".to_vec();
+        let mut scratch = Vec::new();
+
+        let corrected = corrector.correct_read_in_place(&mut mutated, &mut scratch, &filter);
+        assert!(corrected, "ErrorCorrector should correct single mismatch");
+        assert_eq!(mutated, ref_seq, "Corrected sequence must match reference");
+    }
+
+    #[test]
+    fn test_short_read_bypass() {
+        let corrector = ErrorCorrector::new(15);
+        let filter = TwoTierFilter::new(1024);
+        let mut short = b"ACGT".to_vec();
+        let mut scratch = Vec::new();
+        assert!(!corrector.correct_read_in_place(&mut short, &mut scratch, &filter));
+    }
+}
