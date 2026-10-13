@@ -51,6 +51,10 @@ pub struct AssemblerConfig {
     pub is_rna: bool,
     /// Enables single-cell MDA assembly mode (`scSPAdes`), normalizing extreme amplification spikes and dropouts.
     pub is_sc: bool,
+    /// Enables diploid assembly mode (`dipSPAdes`), separating heterozygous polymorphic bubbles into haplotigs.
+    pub is_diploid: bool,
+    /// Optional paths to mate-pair library forward and reverse reads (3-8 kb insert).
+    pub mate_pairs: Option<(std::path::PathBuf, std::path::PathBuf)>,
     /// Whether to run post-assembly read-alignment consensus polishing.
     pub polish: bool,
     /// Enables mismatch-intolerant diploid-aware consensus polishing (`--careful`).
@@ -83,6 +87,8 @@ impl Default for AssemblerConfig {
             is_plasmid: false,
             is_rna: false,
             is_sc: false,
+            is_diploid: false,
+            mate_pairs: None,
             polish: true,
             careful: false,
             interleaved: false,
@@ -104,6 +110,8 @@ pub struct AssemblyResult {
     pub scaffolds: Vec<crate::graph::Unitig>,
     /// Extrachromosomal plasmid contigs isolated when `is_plasmid` is enabled.
     pub plasmids: Vec<crate::graph::Unitig>,
+    /// Alternative heterozygous haplotigs isolated when `is_diploid` is enabled.
+    pub haplotigs: Vec<crate::graph::Unitig>,
     /// Contiguity and composition metrics computed over `contigs`.
     pub stats: AssemblyStats,
     /// Total wall-clock runtime of the assembly pipeline in seconds.
@@ -430,6 +438,34 @@ pub fn run_assembly_with_packed_reads(
         start_time.elapsed().as_secs_f64()
     );
 
+    let mut scaffolds = scaffolds;
+    if let Some((mp1, mp2)) = &config.mate_pairs {
+        println!("─── [Stage 7.5] Long-Range Mate-Pair Scaffolding (Pass 2) ───");
+        match crate::packed_reads::PackedReads::from_paired_files(mp1, mp2) {
+            Ok(mp_reads) => {
+                let mp_info = crate::paired_info::PairedInfoIndex::build_from_packed(
+                    config.k, &scaffolds, &mp_reads,
+                );
+                println!(
+                    "  [Mate-Pair Pass 2] Estimated insert size: {:.1} bp (std: {:.1} bp), {} links",
+                    mp_info.mean_insert_size,
+                    mp_info.insert_size_stdev,
+                    mp_info.links.len()
+                );
+                let scaffolder = crate::scaffold::Scaffolder::default();
+                scaffolds = scaffolder.build_scaffolds(&scaffolds, &mp_info);
+                println!(
+                    "  Mate-pair scaffolds generated: {} (Elapsed: {:.3}s)",
+                    scaffolds.len(),
+                    start_time.elapsed().as_secs_f64()
+                );
+            }
+            Err(e) => {
+                eprintln!("  [Warning] Failed to load mate-pair reads: {}", e);
+            }
+        }
+    }
+
     let (contigs, scaffolds) = if config.polish && !config.skip_repeat_resolution {
         println!(
             "─── [Stage 8] Consensus Base Polishing{} ───",
@@ -476,6 +512,19 @@ pub fn run_assembly_with_packed_reads(
         (contigs, Vec::new())
     };
 
+    let (contigs, haplotigs) = if config.is_diploid {
+        let phaser = crate::modes::DiploidPhaser::default();
+        let (prim, haps) = phaser.phase_haplotigs(config.k, contigs);
+        println!(
+            "  [dipSPAdes] Phased {} heterozygous haplotigs and {} primary contigs",
+            haps.len(),
+            prim.len()
+        );
+        (prim, haps)
+    } else {
+        (contigs, Vec::new())
+    };
+
     let mut contigs = if config.is_meta {
         let meta_contigs = crate::modes::apply_meta_filter(contigs, config.min_contig_len);
         println!(
@@ -503,6 +552,10 @@ pub fn run_assembly_with_packed_reads(
     for (idx, u) in plasmids.iter_mut().enumerate() {
         u.id = idx;
     }
+    let mut haplotigs = haplotigs;
+    for (idx, u) in haplotigs.iter_mut().enumerate() {
+        u.id = idx;
+    }
 
     let stats = calculate_stats(&contigs);
     let elapsed = start_time.elapsed().as_secs_f64();
@@ -511,6 +564,7 @@ pub fn run_assembly_with_packed_reads(
         contigs,
         scaffolds,
         plasmids,
+        haplotigs,
         stats,
         elapsed_secs: elapsed,
     })

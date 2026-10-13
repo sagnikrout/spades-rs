@@ -44,6 +44,8 @@ pub use assemble::{run_assembly, AssemblerConfig, AssemblyResult, AssemblyStats}
 pub use bloom::TwoTierFilter;
 pub use dna::Kmer256;
 pub use graph::Unitig;
-pub use modes::{apply_meta_filter, PlasmidDetector, RnaEngine, SingleCellNormalizer};
+pub use modes::{
+    apply_meta_filter, DiploidPhaser, PlasmidDetector, RnaEngine, SingleCellNormalizer,
+};
 pub use multik::{run_multik_assembly, MultiKConfig};
 pub use packed_reads::PackedReads;

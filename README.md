@@ -15,7 +15,30 @@ Assembly performance depends heavily on library quality, coverage depth, repeat 
 * **Memory usage:** For standard bacterial genomes (2 to 6 Mb) at 30x to 100x coverage, peak RAM typically remains between 1.5 GB and 3.5 GB. Classical SPAdes often allocates 8 GB to 16 GB for the same data. On larger datasets, memory scales with the number of distinct k-mers.
 * **Execution speed:** On modern multi-core processors, runs are generally 1.5x to 3x faster than legacy SPAdes on clean bacterial isolates, mainly because multi-k iterations proceed in memory without saving intermediate graph states to disk.
 * **Assembly quality:** On clean short-read bacterial data with adequate coverage, contiguity (N50) and genome fraction are generally comparable to classical SPAdes (typically 95% to 98% reference coverage). Repeat regions longer than the read length or insert size will fragment contigs unless bridged by long reads.
-* **Specialized modes:** Basic implementations of `--meta` (metagenomics), `--plasmid` (plasmid extraction), `--rna` (transcriptomes), and `--sc` (single-cell MDA) are included. For large, complex environmental metagenomes or specialized clinical pipelines, results should be evaluated alongside the mature C++ SPAdes release.
+* **Specialized modes:** Implementations of `--meta` (metagenomics), `--plasmid` (plasmid extraction), `--rna` (transcriptomes), `--sc` (single-cell MDA), `--diploid` (polymorphic bubble phasing), and `--mp1-1`/`--mp1-2` (mate-pair jumping libraries) are included. For large, complex environmental metagenomes or specialized clinical pipelines, results should be evaluated alongside the mature C++ SPAdes release.
+
+## Scope and biological boundaries
+
+Understanding the mathematical constraints of de Bruijn graphs (DBGs) clarifies when to use `spades-rs` (or original SPAdes) and when to use alternative paradigms:
+
+### Recommended domain (0 to 50 Mb)
+* **Bacterial and archaeal isolates (1 to 8 Mb):** The primary domain. Short reads (150–250 bp) with multi-$k$ de Bruijn graphs and ExSPAnder paired-end repeat resolution reliably reconstruct high-contiguity scaffolds.
+* **Small eukaryotic genomes and fungi (<50 Mb):** Yeasts (*S. cerevisiae* ~12 Mb) and compact fungal genomes assemble effectively when transposable element content remains moderate.
+* **Specialized short-read libraries:** Plasmids (`--plasmid`), single-cell MDA with extreme amplification skew (`--sc`), transcriptomes with alternative splicing (`--rna`), polymorphic diploid bubble phasing (`--diploid`), and mate-pair jumping libraries (`--mp1-1`/`--mp1-2`).
+* **Metagenomic communities (`--meta`):** Resolves abundant isolate contigs across uneven coverage profiles.
+
+### The 100 Mb+ ceiling and 1 Gb+ hard horizon
+Neither `spades-rs` nor classical C++ SPAdes is intended for large eukaryotic genomes (mammalian, amphibian, or large plant genomes $\ge 1\text{ Gb}$). This is governed by three biological and computational barriers:
+
+1. **The $O(G)$ vertex memory wall:** In short-read sequencing, Illumina error rates (~0.1–0.5%) generate novel erroneous $k$-mers proportional to genome size and sequencing depth. For a 3 Gb human genome at 40x depth, the number of distinct $k$-mers exceeds $10^{10}$, requiring hundreds of gigabytes to terabytes of RAM even with Bloom filter rejection.
+2. **Combinatorial repeat tangling:** Large eukaryotic genomes are dominated by repetitive DNA (>50% composed of LINE-1, Alu/SINEs, LTRs, and satellites ranging from 300 bp to over 6 kb). Because short reads (150 bp) cannot span repeats longer than the read or paired insert, all copies collapse into shared high-degree hubs in the de Bruijn graph, causing combinatorial path ambiguity and severe fragmentation.
+3. **The physical information horizon:** When repeat length $L_{\text{repeat}} \gg L_{\text{read}} + L_{\text{insert}}$, short reads physically contain zero spanning information across repeat interiors. No algorithmic improvement can reconstruct repeat ordering without physical reads that anchor into unique flanking sequence.
+
+### Recommended alternatives for large genomes ($\ge 100\text{ Mb}$ and $\ge 1\text{ Gb}$)
+For whole-genome eukaryotic assembly at gigabase scale, use long-read Overlap-Layout-Consensus (OLC) or string-graph assemblers designed for high-accuracy long reads (PacBio HiFi, Oxford Nanopore duplex/simplex):
+* **[hifiasm](https://github.com/chhylp123/hifiasm):** Haplotype-resolved de novo assembly from PacBio HiFi reads; recommended standard for human, animal, and plant genomes.
+* **[Flye](https://github.com/fenderglass/Flye):** Repeat-graph assembler for long, error-prone or accurate reads (ONT / PacBio).
+* **[Verkko](https://github.com/marbl/verkko):** Telomere-to-telomere hybrid graph assembler combining PacBio HiFi and ultra-long ONT reads.
 
 ## Installation
 
@@ -143,6 +166,9 @@ spades-rs assemble -1 R1.fq.gz -2 R2.fq.gz -o output_dir
 | `--pacbio` | Path | None | PacBio HiFi reads for hybrid bridging |
 | `--splitter` | Paths | None | Barcoded linked reads for SpLitteR repeat resolution |
 | `--trusted-contigs` | Paths | None | High-confidence contigs to guide assembly paths |
+| `--mp1-1` | Path | None | Forward mate-pair reads (jumping library, 3–8 kb insert) |
+| `--mp1-2` | Path | None | Reverse mate-pair reads (jumping library, 3–8 kb insert) |
+| `--diploid` | Flag | `false` | Enable dipSPAdes mode separating heterozygous alleles into `haplotigs.fasta` |
 | `--max-memory` | Float | 80% RAM | Maximum physical RAM budget in GB |
 | `--meta` | Flag | `false` | Enable metagenomic uneven coverage filtering |
 | `--plasmid` | Flag | `false` | Segregate circular and high-copy elements into `plasmids.fasta` |
@@ -185,7 +211,27 @@ spades-rs -1 reads_1.fq.gz -2 reads_2.fq.gz --max-memory 2.0 -o output_dir/
 spades-rs -1 short_1.fq.gz -2 short_2.fq.gz --nanopore ont_reads.fq.gz -o hybrid_out/
 ```
 
-### 5. Metagenomic and plasmid assembly
+### 5. Diploid isolate assembly (dipSPAdes allele phasing)
+
+Separate parallel heterozygous polymorphic bubbles into primary contigs and secondary haplotigs:
+
+```bash
+spades-rs -1 diploid_1.fq.gz -2 diploid_2.fq.gz --diploid -o diploid_out/
+```
+
+Files produced:
+* `contigs.fasta`: Primary genomic backbone (higher-coverage / longer alleles).
+* `haplotigs.fasta`: Secondary phased heterozygous alleles.
+
+### 6. Mate-pair jumping library scaffolding (Pass 2)
+
+Use short paired-end reads in pass 1 for local contig construction, and mate-pair jumping libraries (3–8 kb insert) in pass 2 to scaffold across long transposable elements and operons:
+
+```bash
+spades-rs -1 pe_1.fq.gz -2 pe_2.fq.gz --mp1-1 mp_1.fq.gz --mp1-2 mp_2.fq.gz -o mp_out/
+```
+
+### 7. Metagenomic and plasmid assembly
 
 ```bash
 # Metagenomic community
@@ -195,7 +241,7 @@ spades-rs -1 meta_1.fq.gz -2 meta_2.fq.gz --meta -o meta_out/
 spades-rs -1 isolate_1.fq.gz -2 isolate_2.fq.gz --plasmid -o plasmid_out/
 ```
 
-### 6. Stage 2: Read preprocessing and QC (`spades-qc`)
+### 8. Stage 2: Read preprocessing and QC (`spades-qc`)
 
 Run adapter clipping (Illumina TruSeq, Nextera), NovaSeq/NextSeq poly-G tail removal, and sliding-window quality trimming:
 
@@ -207,7 +253,7 @@ spades-qc -1 reads_1.fq.gz -2 reads_2.fq.gz -o clean_1.fq.gz -O clean_2.fq.gz --
 spades-rs qc -1 reads_1.fq.gz -2 reads_2.fq.gz -o clean_1.fq.gz -O clean_2.fq.gz
 ```
 
-### 7. Stage 5: Assembly evaluation & polishing (`spades-eval`)
+### 9. Stage 5: Assembly evaluation & polishing (`spades-eval`)
 
 Compute QUAST-grade contiguity metrics (N50, L50, N90, L90, GC%, contig size bins), reference genome fraction, mismatch rate per 100 kbp, and standalone consensus polishing:
 
@@ -235,7 +281,7 @@ The repository includes both native Rust tests and a real-world scenario validat
 cargo test --release
 ```
 
-Includes 81 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, Stage 2 QC trimming, Stage 5 QUAST evaluation, and module workflows.
+Includes 83 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, Stage 2 QC trimming, Stage 5 QUAST evaluation, dipSPAdes allele phasing, mate-pair scaffolding, and module workflows.
 
 ### Biological and real-world benchmark performance
 
@@ -307,7 +353,7 @@ The Rust source code is contained in `src/` (~8,500 lines across 24 source files
 | [`src/multik.rs`](src/multik.rs) | Progressive in-memory multi-k unitig seeding |
 | [`src/scaffold.rs`](src/scaffold.rs) | Scaffolding path walker and gap closing |
 | [`src/polisher.rs`](src/polisher.rs) | Consensus base voting across primary reads and sidecar |
-| [`src/modes.rs`](src/modes.rs) | Specialized pipelines: meta, plasmid, RNA, and single-cell |
+| [`src/modes.rs`](src/modes.rs) | Specialized pipelines: meta, plasmid, RNA, single-cell MDA, and dipSPAdes |
 | [`src/memory.rs`](src/memory.rs) | Memory budget calculations and dynamic Bloom sizing |
 | [`src/gfa.rs`](src/gfa.rs) | Graphical Fragment Assembly (GFA v1.1) exporter |
 | [`src/assemble.rs`](src/assemble.rs) | End-to-end 8-stage assembly pipeline orchestrator |
@@ -324,6 +370,7 @@ When using `spades-rs`, please cite both this repository and the original public
 
 * **SPAdes:** Bankevich, A. et al. (2012). *Journal of Computational Biology*, 19(5), 455–477. [doi:10.1089/cmb.2012.0021](https://doi.org/10.1089/cmb.2012.0021).
 * **Using SPAdes:** Prjibelski, A. et al. (2020). *Current Protocols in Bioinformatics*, 70(1), e102. [doi:10.1002/cpbi.102](https://doi.org/10.1002/cpbi.102).
+* **dipSPAdes:** Safonova, Y. et al. (2015). *Journal of Computational Biology*, 22(6), 558–567. [doi:10.1089/cmb.2014.0153](https://doi.org/10.1089/cmb.2014.0153).
 * **BayesHammer:** Nikolenko, S. I. et al. (2013). *BMC Genomics*, 14(Suppl 1), S7. [doi:10.1186/1471-2164-14-S1-S7](https://doi.org/10.1186/1471-2164-14-S1-S7).
 * **ExSPAnder:** Prjibelski, A. D. et al. (2014). *Bioinformatics*, 30(12), i293–i301. [doi:10.1093/bioinformatics/btu266](https://doi.org/10.1093/bioinformatics/btu266).
 * **metaSPAdes:** Nurk, S. et al. (2017). *Genome Research*, 27(5), 824–834. [doi:10.1101/gr.213959.116](https://doi.org/10.1101/gr.213959.116).

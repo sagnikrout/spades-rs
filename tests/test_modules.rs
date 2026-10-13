@@ -292,3 +292,41 @@ fn test_local_gap_closer() {
     assert!(closed2.is_some());
     assert_eq!(closed2.unwrap(), b"ACGTACGTAGAATTGCATGCATG");
 }
+
+#[test]
+fn test_diploid_phaser() {
+    use spades_rs::modes::DiploidPhaser;
+
+    let phaser = DiploidPhaser::default();
+    let k = 5;
+
+    // Heterozygous bubble alleles with shared (k-1) prefix ACGT and suffix TGCA
+    let allele_a = Unitig {
+        id: 0,
+        sequence: b"ACGTAAAATGCA".to_vec(),
+        mean_coverage: 32.0,
+        kmers_count: 8,
+    };
+    let allele_b = Unitig {
+        id: 1,
+        sequence: b"ACGTAATATGCA".to_vec(),
+        mean_coverage: 28.0,
+        kmers_count: 8,
+    };
+    let homozygous_flank = Unitig {
+        id: 2,
+        sequence: b"CCCCCCCCCCCC".to_vec(),
+        mean_coverage: 60.0,
+        kmers_count: 8,
+    };
+
+    let (primary, haplotigs) =
+        phaser.phase_haplotigs(k, vec![allele_a, allele_b, homozygous_flank]);
+
+    assert_eq!(primary.len(), 2);
+    assert_eq!(haplotigs.len(), 1);
+    // allele_a has higher coverage, so allele_b is phased into haplotigs
+    assert_eq!(primary[0].sequence, b"ACGTAAAATGCA");
+    assert_eq!(primary[1].sequence, b"CCCCCCCCCCCC");
+    assert_eq!(haplotigs[0].sequence, b"ACGTAATATGCA");
+}

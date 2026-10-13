@@ -92,20 +92,32 @@ enum Commands {
         careful: bool,
 
         /// Enable metaSPAdes metagenomics mode for uneven coverage datasets
-        #[arg(long, conflicts_with_all = ["plasmid", "rna", "sc"])]
+        #[arg(long, conflicts_with_all = ["plasmid", "rna", "sc", "diploid"])]
         meta: bool,
 
         /// Enable plasmidSPAdes mode to extract plasmids into a separate FASTA
-        #[arg(long, conflicts_with_all = ["meta", "rna", "sc"])]
+        #[arg(long, conflicts_with_all = ["meta", "rna", "sc", "diploid"])]
         plasmid: bool,
 
         /// Enable rnaSPAdes mode for transcriptome and alternative splicing isoforms
-        #[arg(long, conflicts_with_all = ["meta", "plasmid", "sc"])]
+        #[arg(long, conflicts_with_all = ["meta", "plasmid", "sc", "diploid"])]
         rna: bool,
 
         /// Enable scSPAdes mode for single-cell MDA coverage normalization
-        #[arg(long, conflicts_with_all = ["meta", "plasmid", "rna"])]
+        #[arg(long, conflicts_with_all = ["meta", "plasmid", "rna", "diploid"])]
         sc: bool,
+
+        /// Enable dipSPAdes mode separating heterozygous polymorphic bubbles into haplotigs.fasta
+        #[arg(long, conflicts_with_all = ["meta", "plasmid", "rna", "sc"])]
+        diploid: bool,
+
+        /// Forward mate-pair reads (jumping library, 3-8 kb insert)
+        #[arg(long = "mp1-1", requires = "mp1_2")]
+        mp1_1: Option<PathBuf>,
+
+        /// Reverse mate-pair reads (jumping library, 3-8 kb insert)
+        #[arg(long = "mp1-2", requires = "mp1_1")]
+        mp1_2: Option<PathBuf>,
 
         /// Disable consensus base polishing
         #[arg(long)]
@@ -316,6 +328,9 @@ fn main() -> anyhow::Result<()> {
             plasmid,
             rna,
             sc,
+            diploid,
+            mp1_1,
+            mp1_2,
             no_polish,
             nanopore,
             pacbio,
@@ -329,6 +344,11 @@ fn main() -> anyhow::Result<()> {
                     .num_threads(t)
                     .build_global()?;
             }
+
+            let mate_pairs = match (mp1_1, mp1_2) {
+                (Some(m1), Some(m2)) => Some((m1, m2)),
+                _ => None,
+            };
 
             let mut all_inputs = Vec::new();
             match (pe1_1, pe1_2) {
@@ -454,9 +474,24 @@ fn main() -> anyhow::Result<()> {
                 }
             );
             println!(
+                "  Diploid Mode: {}",
+                if diploid {
+                    "ENABLED (dipSPAdes Allele Separator)"
+                } else {
+                    "DISABLED"
+                }
+            );
+            println!(
                 "  Consensus Polishing: {}",
                 if !no_polish { "ENABLED" } else { "DISABLED" }
             );
+            if let Some((ref mp1, ref mp2)) = mate_pairs {
+                println!(
+                    "  Mate-Pair Library:    Pass-2 ({} & {})",
+                    mp1.display(),
+                    mp2.display()
+                );
+            }
             if let Some(ref trusted) = trusted_contigs {
                 println!("  Trusted Contigs:      {} file(s)", trusted.len());
             }
@@ -480,6 +515,8 @@ fn main() -> anyhow::Result<()> {
                     is_plasmid: plasmid,
                     is_rna: rna,
                     is_sc: sc,
+                    is_diploid: diploid,
+                    mate_pairs: mate_pairs.clone(),
                     polish: !no_polish,
                     careful,
                     interleaved: is_interleaved,
@@ -500,6 +537,8 @@ fn main() -> anyhow::Result<()> {
                     is_plasmid: plasmid,
                     is_rna: rna,
                     is_sc: sc,
+                    is_diploid: diploid,
+                    mate_pairs,
                     polish: !no_polish,
                     careful,
                     interleaved: is_interleaved,
@@ -529,7 +568,7 @@ fn main() -> anyhow::Result<()> {
             println!("  Total Wall-Clock:     {:.4} seconds", result.elapsed_secs);
             println!("-----------------------------------------------------------");
 
-            let (contig_path, scaffold_path, gfa_path, plasmid_path) =
+            let (contig_path, scaffold_path, gfa_path, plasmid_path, haplotig_path) =
                 if output.is_dir() || output.extension().is_none() {
                     std::fs::create_dir_all(&output)?;
                     (
@@ -537,6 +576,7 @@ fn main() -> anyhow::Result<()> {
                         output.join("scaffolds.fasta"),
                         output.join("assembly_graph.gfa"),
                         output.join("plasmids.fasta"),
+                        output.join("haplotigs.fasta"),
                     )
                 } else {
                     if let Some(parent) = output.parent() {
@@ -555,11 +595,17 @@ fn main() -> anyhow::Result<()> {
                     } else {
                         "plasmids.fasta"
                     };
+                    let haplo_name = if file_name == "haplotigs.fasta" {
+                        "haplotigs_phased.fasta"
+                    } else {
+                        "haplotigs.fasta"
+                    };
                     (
                         output.clone(),
                         output.with_file_name(scaf_name),
                         output.with_extension("gfa"),
                         output.with_file_name(plas_name),
+                        output.with_file_name(haplo_name),
                     )
                 };
 
@@ -598,6 +644,14 @@ fn main() -> anyhow::Result<()> {
                 println!(
                     "  Plasmids successfully exported to: {}",
                     plasmid_path.display()
+                );
+            }
+
+            if diploid && !result.haplotigs.is_empty() {
+                write_contigs_fasta(&result.haplotigs, &haplotig_path)?;
+                println!(
+                    "  Haplotigs (phased alleles) exported to: {}",
+                    haplotig_path.display()
                 );
             }
 
@@ -767,6 +821,8 @@ fn main() -> anyhow::Result<()> {
                 is_plasmid: false,
                 is_rna: false,
                 is_sc: false,
+                is_diploid: false,
+                mate_pairs: None,
                 polish: true,
                 careful: false,
                 interleaved: false,

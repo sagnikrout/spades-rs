@@ -168,3 +168,96 @@ impl SingleCellNormalizer {
             .collect()
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Module 5.5: dipSPAdes Diploid Haplotype Separation & Haplotig Extraction
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Diploid haplotype phaser and bubble separator (`dipSPAdes` mode).
+#[derive(Clone, Debug)]
+pub struct DiploidPhaser {
+    /// Maximum length difference ratio between homologous bubble alleles.
+    pub max_allele_len_diff: f64,
+    /// Maximum coverage asymmetry ratio between homologous alleles (e.g., 2.5).
+    pub max_cov_ratio: f64,
+}
+
+impl Default for DiploidPhaser {
+    fn default() -> Self {
+        Self {
+            max_allele_len_diff: 0.30,
+            max_cov_ratio: 2.5,
+        }
+    }
+}
+
+impl DiploidPhaser {
+    /// Separates parallel polymorphic bubble branches into primary reference contigs and secondary haplotigs.
+    pub fn phase_haplotigs(&self, k: usize, unitigs: Vec<Unitig>) -> (Vec<Unitig>, Vec<Unitig>) {
+        let k1 = k.saturating_sub(1);
+        if k1 == 0 || unitigs.len() <= 1 {
+            return (unitigs, Vec::new());
+        }
+
+        let mut bubble_groups: hashbrown::HashMap<(Vec<u8>, Vec<u8>), Vec<usize>> =
+            hashbrown::HashMap::new();
+
+        for (idx, u) in unitigs.iter().enumerate() {
+            if u.sequence.len() < k1 {
+                continue;
+            }
+            let p = u.sequence[..k1].to_vec();
+            let q = u.sequence[u.sequence.len() - k1..].to_vec();
+            let rc_p = crate::dna::revcomp_bytes(&p);
+            let rc_q = crate::dna::revcomp_bytes(&q);
+
+            let key_fwd = (p, q);
+            let key_rev = (rc_q, rc_p);
+            let canonical_key = if key_fwd <= key_rev { key_fwd } else { key_rev };
+
+            bubble_groups.entry(canonical_key).or_default().push(idx);
+        }
+
+        let mut haplotig_indices = hashbrown::HashSet::new();
+
+        for members in bubble_groups.into_values() {
+            if members.len() == 2 {
+                let u0 = &unitigs[members[0]];
+                let u1 = &unitigs[members[1]];
+
+                let len0 = u0.sequence.len();
+                let len1 = u1.sequence.len();
+                let max_len = len0.max(len1) as f64;
+                let min_len = len0.min(len1) as f64;
+
+                let cov0 = u0.mean_coverage.max(0.1);
+                let cov1 = u1.mean_coverage.max(0.1);
+                let max_cov = cov0.max(cov1);
+                let min_cov = cov0.min(cov1);
+
+                let len_ratio = (max_len - min_len) / max_len.max(1.0);
+                let cov_ratio = max_cov / min_cov;
+
+                if len_ratio <= self.max_allele_len_diff && cov_ratio <= self.max_cov_ratio {
+                    // Legitimate heterozygous diploid locus:
+                    // Retain higher-coverage or longer branch as primary, and route the other to haplotigs.
+                    let haplotig_idx = if cov0 >= cov1 { members[1] } else { members[0] };
+                    haplotig_indices.insert(haplotig_idx);
+                }
+            }
+        }
+
+        let mut primary = Vec::new();
+        let mut haplotigs = Vec::new();
+
+        for (idx, u) in unitigs.into_iter().enumerate() {
+            if haplotig_indices.contains(&idx) {
+                haplotigs.push(u);
+            } else {
+                primary.push(u);
+            }
+        }
+
+        (primary, haplotigs)
+    }
+}

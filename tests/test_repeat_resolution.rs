@@ -256,3 +256,48 @@ fn test_splitter_linked_read_resolution() {
         "U0 and U1 must be bridged by shared barcodes"
     );
 }
+
+#[test]
+fn test_mate_pair_pass2_scaffolding() {
+    use spades_rs::scaffold::Scaffolder;
+
+    let u0 = Unitig {
+        id: 0,
+        sequence: vec![b'A'; 500],
+        mean_coverage: 30.0,
+        kmers_count: 480,
+    };
+    let u1 = Unitig {
+        id: 1,
+        sequence: vec![b'C'; 500],
+        mean_coverage: 30.0,
+        kmers_count: 480,
+    };
+
+    // Mate pair library with 3,000 bp insert size connecting u0 -> u1
+    let mut links = HashMap::new();
+    let mut links_0 = HashMap::new();
+    links_0.insert(
+        1,
+        PairedLink {
+            target_unitig: 1,
+            support_count: 8,
+            total_distance: 3000.0 * 8.0,
+        },
+    );
+    links.insert(0, links_0);
+
+    let mp_info = PairedInfoIndex {
+        mean_insert_size: 3000.0,
+        insert_size_stdev: 300.0,
+        links,
+    };
+
+    let scaffolder = Scaffolder::default();
+    let scaffolds = scaffolder.build_scaffolds(&[u0, u1], &mp_info);
+
+    assert_eq!(scaffolds.len(), 1);
+    assert!(scaffolds[0].sequence.contains(&b'N'));
+    assert!(scaffolds[0].sequence.starts_with(&vec![b'A'; 500]));
+    assert!(scaffolds[0].sequence.ends_with(&vec![b'C'; 500]));
+}

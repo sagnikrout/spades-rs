@@ -29,6 +29,10 @@ pub struct MultiKConfig {
     pub is_rna: bool,
     /// Enables single-cell MDA assembly mode (`scSPAdes`).
     pub is_sc: bool,
+    /// Enables diploid assembly mode (`dipSPAdes`).
+    pub is_diploid: bool,
+    /// Optional paths to mate-pair library forward and reverse reads (3-8 kb insert).
+    pub mate_pairs: Option<(PathBuf, PathBuf)>,
     /// Whether to run post-assembly read-alignment consensus polishing on the final $k$-mer step.
     pub polish: bool,
     /// Enables mismatch-intolerant diploid-aware consensus polishing (`--careful`).
@@ -57,6 +61,8 @@ impl Default for MultiKConfig {
             is_plasmid: false,
             is_rna: false,
             is_sc: false,
+            is_diploid: false,
+            mate_pairs: None,
             polish: true,
             careful: false,
             interleaved: false,
@@ -121,6 +127,12 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
             is_plasmid: config.is_plasmid && is_last_step,
             is_rna: config.is_rna,
             is_sc: config.is_sc,
+            is_diploid: config.is_diploid && is_last_step,
+            mate_pairs: if is_last_step {
+                config.mate_pairs.clone()
+            } else {
+                None
+            },
             polish: config.polish && is_last_step, // Polish on final assembly
             careful: config.careful && is_last_step,
             interleaved: config.interleaved,
