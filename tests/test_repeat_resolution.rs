@@ -298,6 +298,6 @@ fn test_mate_pair_pass2_scaffolding() {
 
     assert_eq!(scaffolds.len(), 1);
     assert!(scaffolds[0].sequence.contains(&b'N'));
-    assert!(scaffolds[0].sequence.starts_with(&vec![b'A'; 500]));
-    assert!(scaffolds[0].sequence.ends_with(&vec![b'C'; 500]));
+    assert!(scaffolds[0].sequence.starts_with(&[b'A'; 500]));
+    assert!(scaffolds[0].sequence.ends_with(&[b'C'; 500]));
 }

@@ -330,3 +330,176 @@ fn test_diploid_phaser() {
     assert_eq!(primary[1].sequence, b"CCCCCCCCCCCC");
     assert_eq!(haplotigs[0].sequence, b"ACGTAATATGCA");
 }
+
+#[test]
+fn test_diploid_phaser_identical_and_revcomp_not_phased() {
+    use spades_rs::modes::DiploidPhaser;
+
+    let phaser = DiploidPhaser::default();
+    let k = 5;
+
+    // Identical sequences (homozygous locus): must NOT be split
+    let u0 = Unitig {
+        id: 0,
+        sequence: b"ACGTAAAATGCA".to_vec(),
+        mean_coverage: 30.0,
+        kmers_count: 8,
+    };
+    let u1 = Unitig {
+        id: 1,
+        sequence: b"ACGTAAAATGCA".to_vec(),
+        mean_coverage: 30.0,
+        kmers_count: 8,
+    };
+
+    let (primary, haplotigs) = phaser.phase_haplotigs(k, vec![u0, u1]);
+    assert_eq!(primary.len(), 2);
+    assert!(
+        haplotigs.is_empty(),
+        "Identical homozygous sequences should not be phased into haplotigs"
+    );
+
+    // Reverse-complement identical sequences (opposite strand homozygous duplicate): must NOT be split
+    let rc_seq = spades_rs::dna::revcomp_bytes(b"ACGTAAAATGCA");
+    let u2 = Unitig {
+        id: 2,
+        sequence: b"ACGTAAAATGCA".to_vec(),
+        mean_coverage: 30.0,
+        kmers_count: 8,
+    };
+    let u3 = Unitig {
+        id: 3,
+        sequence: rc_seq,
+        mean_coverage: 30.0,
+        kmers_count: 8,
+    };
+
+    let (primary2, haplotigs2) = phaser.phase_haplotigs(k, vec![u2, u3]);
+    assert_eq!(primary2.len(), 2);
+    assert!(
+        haplotigs2.is_empty(),
+        "Reverse-complement duplicate should not be phased into haplotigs"
+    );
+}
+
+#[test]
+fn test_diploid_phaser_coverage_and_length_ratio_thresholds() {
+    use spades_rs::modes::DiploidPhaser;
+
+    let phaser = DiploidPhaser::default();
+    let k = 5;
+
+    // Asymmetric coverage: 100x vs 10x (ratio = 10.0 > 2.5 cutoff) -> sequencing artifact, not diploid allele
+    let u0 = Unitig {
+        id: 0,
+        sequence: b"ACGTAAAATGCA".to_vec(),
+        mean_coverage: 100.0,
+        kmers_count: 8,
+    };
+    let u1 = Unitig {
+        id: 1,
+        sequence: b"ACGTAATATGCA".to_vec(),
+        mean_coverage: 10.0,
+        kmers_count: 8,
+    };
+
+    let (primary, haplotigs) = phaser.phase_haplotigs(k, vec![u0, u1]);
+    assert_eq!(primary.len(), 2);
+    assert!(
+        haplotigs.is_empty(),
+        "Coverage asymmetry > 2.5x must not be phased as diploid"
+    );
+
+    // Length divergence: 100 bp vs 200 bp (ratio = 0.50 > 0.30 cutoff) -> structural variant / repeat, not homologous bubble
+    let mut seq_short = b"ACGT".to_vec();
+    seq_short.extend_from_slice(&[b'A'; 92]);
+    seq_short.extend_from_slice(b"TGCA");
+
+    let mut seq_long = b"ACGT".to_vec();
+    seq_long.extend_from_slice(&[b'C'; 192]);
+    seq_long.extend_from_slice(b"TGCA");
+
+    let u2 = Unitig {
+        id: 2,
+        sequence: seq_short,
+        mean_coverage: 30.0,
+        kmers_count: 8,
+    };
+    let u3 = Unitig {
+        id: 3,
+        sequence: seq_long,
+        mean_coverage: 30.0,
+        kmers_count: 8,
+    };
+
+    let (primary2, haplotigs2) = phaser.phase_haplotigs(k, vec![u2, u3]);
+    assert_eq!(primary2.len(), 2);
+    assert!(
+        haplotigs2.is_empty(),
+        "Length difference > 30% must not be phased as diploid bubble"
+    );
+}
+
+#[test]
+fn test_diploid_phaser_multibranch_repeat_and_boundaries() {
+    use spades_rs::modes::DiploidPhaser;
+
+    let phaser = DiploidPhaser::default();
+    let k = 5;
+
+    // Triploid / repeat multi-branch (3 branches sharing same endpoints): must not arbitrarily pair
+    let u0 = Unitig {
+        id: 0,
+        sequence: b"ACGTAAAATGCA".to_vec(),
+        mean_coverage: 30.0,
+        kmers_count: 8,
+    };
+    let u1 = Unitig {
+        id: 1,
+        sequence: b"ACGTAATATGCA".to_vec(),
+        mean_coverage: 30.0,
+        kmers_count: 8,
+    };
+    let u2 = Unitig {
+        id: 2,
+        sequence: b"ACGTAACATGCA".to_vec(),
+        mean_coverage: 30.0,
+        kmers_count: 8,
+    };
+
+    let (primary, haplotigs) = phaser.phase_haplotigs(k, vec![u0, u1, u2]);
+    assert_eq!(primary.len(), 3);
+    assert!(
+        haplotigs.is_empty(),
+        "3-way repeat/multibranch locus should not be phased as diploid"
+    );
+
+    // Boundary cases: empty unitigs, unitigs shorter than k-1, k=0, k=1
+    let (p_empty, h_empty) = phaser.phase_haplotigs(k, Vec::new());
+    assert!(p_empty.is_empty());
+    assert!(h_empty.is_empty());
+
+    let (p_short, h_short) = phaser.phase_haplotigs(
+        31,
+        vec![Unitig {
+            id: 0,
+            sequence: b"ACGT".to_vec(),
+            mean_coverage: 10.0,
+            kmers_count: 0,
+        }],
+    );
+    assert_eq!(p_short.len(), 1);
+    assert!(h_short.is_empty());
+
+    let (p_k0, h_k0) = phaser.phase_haplotigs(
+        0,
+        vec![Unitig {
+            id: 0,
+            sequence: b"ACGTACGT".to_vec(),
+            mean_coverage: 10.0,
+            kmers_count: 0,
+        }],
+    );
+    assert_eq!(p_k0.len(), 1);
+    assert!(h_k0.is_empty());
+}

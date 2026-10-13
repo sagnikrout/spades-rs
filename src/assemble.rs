@@ -420,6 +420,20 @@ pub fn run_assembly_with_packed_reads(
         contigs
     };
 
+    let (contigs, haplotigs) = if config.is_diploid {
+        println!("─── [dipSPAdes] Phasing Heterozygous Bubbles & Extracting Haplotigs ───");
+        let phaser = crate::modes::DiploidPhaser::default();
+        let (prim, haps) = phaser.phase_haplotigs(config.k, contigs);
+        println!(
+            "  [dipSPAdes] Phased {} heterozygous haplotigs and {} primary contigs",
+            haps.len(),
+            prim.len()
+        );
+        (prim, haps)
+    } else {
+        (contigs, Vec::new())
+    };
+
     println!("─── [Stage 7] Scaffolding Across Unresolved Gaps ───");
     let scaffolds = if !config.skip_repeat_resolution && packed.is_paired() {
         let paired_info =
@@ -466,7 +480,7 @@ pub fn run_assembly_with_packed_reads(
         }
     }
 
-    let (contigs, scaffolds) = if config.polish && !config.skip_repeat_resolution {
+    let (contigs, scaffolds, haplotigs) = if config.polish && !config.skip_repeat_resolution {
         println!(
             "─── [Stage 8] Consensus Base Polishing{} ───",
             if config.careful {
@@ -486,14 +500,19 @@ pub fn run_assembly_with_packed_reads(
         } else {
             (polished_c.clone(), 0)
         };
+        let (polished_h, fixes_h) = if !haplotigs.is_empty() {
+            polisher.polish_contigs_packed(haplotigs, packed)
+        } else {
+            (haplotigs, 0)
+        };
         println!(
             "  Polished {} base discrepancies across contigs and scaffolds (Elapsed: {:.3}s)",
-            fixes_c + fixes_s,
+            fixes_c + fixes_s + fixes_h,
             start_time.elapsed().as_secs_f64()
         );
-        (polished_c, polished_s)
+        (polished_c, polished_s, polished_h)
     } else {
-        (contigs, scaffolds)
+        (contigs, scaffolds, haplotigs)
     };
 
     let (contigs, plasmids) = if config.is_plasmid {
@@ -508,19 +527,6 @@ pub fn run_assembly_with_packed_reads(
             chrom.len()
         );
         (chrom, plas)
-    } else {
-        (contigs, Vec::new())
-    };
-
-    let (contigs, haplotigs) = if config.is_diploid {
-        let phaser = crate::modes::DiploidPhaser::default();
-        let (prim, haps) = phaser.phase_haplotigs(config.k, contigs);
-        println!(
-            "  [dipSPAdes] Phased {} heterozygous haplotigs and {} primary contigs",
-            haps.len(),
-            prim.len()
-        );
-        (prim, haps)
     } else {
         (contigs, Vec::new())
     };

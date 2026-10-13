@@ -187,7 +187,12 @@ pub fn run_multik_assembly<P: AsRef<Path> + Sync>(
         let rescue_k = config.kmers.last().copied().unwrap_or(31).min(32);
 
         let mut final_kmers: hashbrown::HashSet<u64> = hashbrown::HashSet::new();
-        for u in result.contigs.iter().chain(result.plasmids.iter()) {
+        for u in result
+            .contigs
+            .iter()
+            .chain(result.plasmids.iter())
+            .chain(result.haplotigs.iter())
+        {
             if u.sequence.len() >= rescue_k {
                 for i in 0..=(u.sequence.len() - rescue_k) {
                     if let Some(km) =

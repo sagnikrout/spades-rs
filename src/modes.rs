@@ -238,10 +238,20 @@ impl DiploidPhaser {
                 let len_ratio = (max_len - min_len) / max_len.max(1.0);
                 let cov_ratio = max_cov / min_cov;
 
-                if len_ratio <= self.max_allele_len_diff && cov_ratio <= self.max_cov_ratio {
+                let revcomp_u1 = crate::dna::revcomp_bytes(&u1.sequence);
+                let is_distinct_sequence = u0.sequence != u1.sequence && u0.sequence != revcomp_u1;
+
+                if is_distinct_sequence
+                    && len_ratio <= self.max_allele_len_diff
+                    && cov_ratio <= self.max_cov_ratio
+                {
                     // Legitimate heterozygous diploid locus:
                     // Retain higher-coverage or longer branch as primary, and route the other to haplotigs.
-                    let haplotig_idx = if cov0 >= cov1 { members[1] } else { members[0] };
+                    let haplotig_idx = if cov0 > cov1 || (cov0 == cov1 && len0 >= len1) {
+                        members[1]
+                    } else {
+                        members[0]
+                    };
                     haplotig_indices.insert(haplotig_idx);
                 }
             }
