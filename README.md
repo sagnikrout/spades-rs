@@ -4,7 +4,7 @@ A Rust implementation of the SPAdes genome assembly pipeline designed for lower 
 
 [![Rust CI](https://github.com/sagnikrout/spades-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/sagnikrout/spades-rs/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release: v1.0.0](https://img.shields.io/badge/Release-v1.0.0-teal.svg)](https://github.com/sagnikrout/spades-rs/releases)
+[![Release: v1.1.0-alpha.1](https://img.shields.io/badge/Release-v1.1.0--alpha.1-teal.svg)](https://github.com/sagnikrout/spades-rs/releases)
 
 `spades-rs` is a standalone *de novo* genome assembler written in Rust. It implements the primary algorithms of the SPAdes pipeline (Bankevich et al., 2012) as a single static executable, with a focus on avoiding disk churn and keeping peak memory low enough to run on standard computers.
 
@@ -235,9 +235,23 @@ The repository includes both native Rust tests and a real-world scenario validat
 cargo test --release
 ```
 
-Includes 78 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, Stage 2 QC trimming, Stage 5 QUAST evaluation, and module workflows.
+Includes 81 tests covering DNA primitives, 256-bit SIMD k-mers, Two-Tier Bloom filters, graph simplification, 2-bit read packing, N-base handling, Stage 2 QC trimming, Stage 5 QUAST evaluation, and module workflows.
 
-### Real-world scenario validation
+### Biological and real-world benchmark performance
+
+Empirical evaluation on an **Intel Core Ultra 9 185H (22 threads, AVX2, 32 GB RAM)** comparing original C++ SPAdes v4.3.0 against `spades-rs` on the flagship *E. coli* MG1655 + Nanopore hybrid dataset:
+
+| Metric | Original C++ SPAdes (v4.3.0) | spades-rs v1.0.0 | spades-rs v1.1.0-alpha.1 | Delta vs Original |
+| :--- | :--- | :--- | :--- | :--- |
+| **Elapsed Wall-Clock** | 961.7 s (~16m 01s) | 256.6 s (~4m 17s) | **250.5 s (~4m 10s)** | **3.84x faster** |
+| **Peak RAM (RSS)** | 5,278.6 MB (5.28 GB) | 2,115.8 MB (2.12 GB) | **2,157.6 MB (2.16 GB)** | **2.45x less memory** |
+| **Scaffold N50 / L50** | ~180,000 bp | 212,344 bp / 7 | **765,577 bp / 3** | **3.6x higher contiguity** |
+| **Largest Scaffold** | 469,088 bp | 811,852 bp | **1,168,939 bp (~1.17 Mb)** | **2.5x larger single piece** |
+| **Mismatches / 100 kbp** | 9.15 (Q40) | 3.78 | **2.54** | **3.6x higher accuracy** |
+| **7 rRNA Operons** | Collapsed / Fragmented | 7 / 7 Bridged | **7 / 7 Bridged (100%)** | **Zero repeat collapse** |
+| **Taxonomic Purity (Zymo)** | N/A | N/A | **99.94%** | **Near-zero chimerism** |
+
+### Operational scenario validation
 
 ```bash
 # Fast validation across all library types and edge cases (~20 seconds)
@@ -245,6 +259,9 @@ python3 tools/run_realworld_validation.py --quick
 
 # Full matrix including multi-million read benchmarks
 python3 tools/run_realworld_validation.py
+
+# Complete 10-organism end-to-end biological audit suite
+python3 tools/run_full_e2e.py
 ```
 
 Validates 19 distinct operational scenarios:

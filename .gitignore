@@ -9,6 +9,7 @@ target/
 *.paths
 output/
 test_out*/
+test_e2e_out/
 
 # Downloaded benchmark datasets (raw sequencing data)
 data/

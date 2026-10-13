@@ -9,7 +9,7 @@ species_list = [
 ]
 
 # Inspect all_alignments_contigs.tsv to find contigs matching >1 species
-tsv_file = 'output/bench_zymo/quast_report/contigs_reports/all_alignments_contigs.tsv'
+tsv_file = sys.argv[1] if len(sys.argv) > 1 else 'output/bench_zymo/quast_report/contigs_reports/all_alignments_contigs.tsv'
 if not os.path.exists(tsv_file):
     print(f"Error: QUAST alignment file not found at {tsv_file}")
     sys.exit(1)
