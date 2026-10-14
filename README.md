@@ -4,7 +4,7 @@ A Rust implementation of the SPAdes genome assembly pipeline designed for lower 
 
 [![Rust CI](https://github.com/sagnikrout/spades-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/sagnikrout/spades-rs/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Release: v1.1.0-rc.1](https://img.shields.io/badge/Release-v1.1.0--rc.1-orange.svg)](https://github.com/sagnikrout/spades-rs/releases)
+[![Release: v1.1.0](https://img.shields.io/badge/Release-v1.1.0-brightgreen.svg)](https://github.com/sagnikrout/spades-rs/releases)
 
 `spades-rs` is a standalone *de novo* genome assembler written in Rust. It implements the primary algorithms of the SPAdes pipeline (Bankevich et al., 2012) as a single static executable, with a focus on avoiding disk churn and keeping peak memory low enough to run on standard computers.
 
