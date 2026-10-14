@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Full end-to-end test driver for spades-rs v1.1.0-beta.1.
+Full end-to-end test driver for spades-rs v1.1.0-rc.1.
 
 Assembles every real-world dataset, runs QUAST where needed, then runs every
 biological audit script against the resulting contigs/scaffolds and prints a
@@ -385,7 +385,7 @@ def main():
     # Scorecard
     # -----------------------------------------------------------------------
     print(f"\n{BOLD}{'=' * 70}{RESET}")
-    print(f"{BOLD}  END-TO-END SCORECARD — spades-rs v1.1.0-beta.1{RESET}")
+    print(f"{BOLD}  END-TO-END SCORECARD — spades-rs v1.1.0-rc.1{RESET}")
     print(f"{BOLD}{'=' * 70}{RESET}")
 
     sections = [
